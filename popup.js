@@ -1,5 +1,5 @@
-// Media Grabber v3 — Apple-style UI
-// Popup script with Image/Video tabs, size display, and modern design
+// Media Grabber v3.1 — Popup script
+// Fixed video detection with proper filtering
 
 let allMedia = { images: [], videos: [] };
 let currentTab = 'images';
@@ -13,7 +13,7 @@ async function getCurrentTab() {
 }
 
 function formatSize(bytes) {
-  if (!bytes || bytes === 0) return 'N/A';
+  if (!bytes || bytes === 0) return '';
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
@@ -31,34 +31,23 @@ function getFilename(url) {
   }
 }
 
-function isVideoUrl(url, contentType = '') {
-  const videoExts = /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v)(\?|$|#)/i;
-  const videoTypes = /video\//i;
-  return videoExts.test(url) || videoTypes.test(contentType) || 
-         url.includes('video') || url.includes('.m3u8');
+function isVideoUrl(url) {
+  if (!url) return false;
+  return /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v|3gp)(\?|$|#)/i.test(url);
 }
 
-function isImageUrl(url, contentType = '') {
-  const imageExts = /\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|svg|ico)(\?|$|#)/i;
-  const imageTypes = /image\//i;
-  return imageExts.test(url) || imageTypes.test(contentType);
+function isImageUrl(url) {
+  if (!url) return false;
+  if (url.startsWith('data:image/')) return true;
+  return /\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|ico)(\?|$|#)/i.test(url);
 }
 
-function classifyMedia(item) {
-  const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
-  const contentType = item.contentType || '';
-  
-  if (item.type === 'video' || isVideoUrl(url, contentType)) return 'video';
-  if (item.type === 'image' || isImageUrl(url, contentType)) return 'image';
-  if (item.type === 'canvas' || item.type === 'bg-image') return 'image';
-  return 'image'; // default to image
+function isDownloadable(url) {
+  if (!url) return false;
+  return url.startsWith('http://') || url.startsWith('https://');
 }
 
-function getMediaIcon(type) {
-  return type === 'video' ? '🎬' : '🖼️';
-}
-
-// ─── Classify All Media ─────────────────────────────────────────────
+// ─── Classify Media ─────────────────────────────────────────────────
 
 function classifyAllMedia() {
   const images = [];
@@ -67,9 +56,9 @@ function classifyAllMedia() {
   
   // Combine all sources
   const allSources = [
-    ...allMedia.page || [],
-    ...allMedia.network || [],
-    ...allMedia.intercepted || []
+    ...(allMedia.page || []),
+    ...(allMedia.network || []),
+    ...(allMedia.intercepted || [])
   ];
   
   for (const item of allSources) {
@@ -77,18 +66,28 @@ function classifyAllMedia() {
     if (!url || seen.has(url)) continue;
     seen.add(url);
     
-    // Skip data/blob URLs for counting
+    // Skip data/blob URLs
     if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('canvas:')) {
-      // Still add to list for preview, but mark as non-downloadable
-      item._downloadable = false;
-    } else {
-      item._downloadable = true;
+      // Still add images to list for preview
+      if (url.startsWith('data:image/')) {
+        item._downloadable = false;
+        item._type = 'image';
+        images.push(item);
+      }
+      continue;
     }
     
-    const type = classifyMedia(item);
-    if (type === 'video') {
+    // Skip non-HTTP URLs
+    if (!url.startsWith('http://') && !url.startsWith('https://')) continue;
+    
+    // Use isVideo flag from content script if available
+    if (item.isVideo === true || isVideoUrl(url)) {
+      item._type = 'video';
+      item._downloadable = true;
       videos.push(item);
-    } else {
+    } else if (item.isVideo === false || isImageUrl(url)) {
+      item._type = 'image';
+      item._downloadable = true;
       images.push(item);
     }
   }
@@ -116,12 +115,11 @@ function renderMedia() {
   
   if (items.length === 0) {
     const icon = currentTab === 'images' ? '🖼️' : '🎬';
-    const label = currentTab === 'images' ? 'gambar' : 'video';
     list.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">${icon}</div>
         <div class="empty-title">Tidak Ada ${currentTab === 'images' ? 'Gambar' : 'Video'}</div>
-        <div class="empty-text">Tidak ditemukan ${label} di halaman ini</div>
+        <div class="empty-text">Tidak ditemukan ${currentTab === 'images' ? 'gambar' : 'video'} di halaman ini</div>
       </div>
     `;
     return;
@@ -129,31 +127,43 @@ function renderMedia() {
   
   list.innerHTML = items.map((item, i) => {
     const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
-    const isData = url.startsWith('data:');
-    const isBlob = url.startsWith('blob:');
-    const downloadable = !isData && !isBlob && !url.startsWith('canvas:');
+    const downloadable = isDownloadable(url);
     const type = currentTab === 'images' ? 'image' : 'video';
-    const icon = getMediaIcon(type);
+    const icon = type === 'video' ? '🎬' : '🖼️';
     const size = formatSize(item.size);
     const width = item.width || item.naturalWidth || item.videoWidth;
     const height = item.height || item.naturalHeight || item.videoHeight;
     const dimensions = width && height ? `${width}×${height}` : '';
-    const source = item.source || 'page';
-    const shortUrl = url.length > 60 ? url.substring(0, 60) + '...' : url;
+    const shortUrl = url.length > 50 ? url.substring(0, 50) + '...' : url;
     const isSelected = selectedItems.has(i);
+    const poster = item.poster || '';
+    
+    // For video: use poster image or show placeholder
+    // For image: use direct URL
+    let thumbHtml;
+    if (type === 'video') {
+      if (poster && poster.startsWith('http')) {
+        thumbHtml = `<img class="media-thumb" src="${poster}" onerror="this.outerHTML='<div class=media-thumb-placeholder>🎬</div>'" loading="lazy">`;
+      } else {
+        thumbHtml = `<div class="media-thumb-placeholder">🎬</div>`;
+      }
+    } else {
+      if (url.startsWith('data:image/') || url.startsWith('http')) {
+        thumbHtml = `<img class="media-thumb" src="${url}" onerror="this.outerHTML='<div class=media-thumb-placeholder>🖼️</div>'" loading="lazy">`;
+      } else {
+        thumbHtml = `<div class="media-thumb-placeholder">🖼️</div>`;
+      }
+    }
     
     return `
       <div class="media-card ${isSelected ? 'selected' : ''}" data-index="${i}">
         <input type="checkbox" class="media-checkbox" data-index="${i}" ${isSelected ? 'checked' : ''} ${!downloadable ? 'disabled' : ''}>
-        ${(!isData && !isBlob)
-          ? `<img class="media-thumb" src="${url}" onerror="this.outerHTML='<div class=media-thumb-placeholder>${icon}</div>'" loading="lazy">`
-          : `<div class="media-thumb-placeholder">${icon}</div>`
-        }
+        ${thumbHtml}
         <div class="media-info">
           <div class="media-type-badge ${type}">${type === 'video' ? 'Video' : 'Image'}</div>
           <div class="media-url" title="${url}">${shortUrl}</div>
           <div class="media-meta">
-            ${size !== 'N/A' ? `<span class="media-size">📦 ${size}</span>` : ''}
+            ${size ? `<span class="media-size">📦 ${size}</span>` : ''}
             ${dimensions ? `<span class="media-dimensions">📐 ${dimensions}</span>` : ''}
           </div>
         </div>
@@ -203,16 +213,11 @@ function renderMedia() {
   
   // Select all checkbox
   const selectAll = document.getElementById('select-all');
-  selectAll.checked = items.every((_, i) => selectedItems.has(i));
+  selectAll.checked = items.length > 0 && items.every((_, i) => selectedItems.has(i));
 }
 
 function updateSelectedCount() {
   const items = allMedia[currentTab] || [];
-  const downloadable = items.filter((item) => {
-    const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
-    return !url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('canvas:');
-  });
-  
   const selectedCount = [...selectedItems].filter(i => i < items.length).length;
   document.getElementById('selected-count').textContent = `(${selectedCount})`;
 }
@@ -236,7 +241,7 @@ document.getElementById('select-all').addEventListener('change', (e) => {
   if (e.target.checked) {
     items.forEach((item, i) => {
       const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
-      if (!url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('canvas:')) {
+      if (isDownloadable(url)) {
         selectedItems.add(i);
       }
     });
@@ -281,70 +286,82 @@ async function scanPage() {
     func: () => {
       const media = [];
       
-      // Images
+      // Helper: validate video URL
+      function isRealVideoUrl(url) {
+        if (!url || !url.startsWith('http')) return false;
+        const skipPatterns = [/google-analytics/i, /facebook\.net/i, /pixel/i, /beacon/i, /tracking/i];
+        for (const p of skipPatterns) { if (p.test(url)) return false; }
+        return /\.(mp4|webm|mov|avi|mkv|flv|m4v)(\?|$|#)/i.test(url);
+      }
+      
+      // Helper: validate image URL
+      function isRealImageUrl(url) {
+        if (!url) return false;
+        if (url.startsWith('data:image/')) return true;
+        if (!url.startsWith('http')) return false;
+        const skipPatterns = [/google-analytics/i, /facebook\.net/i, /pixel/i, /1x1/i];
+        for (const p of skipPatterns) { if (p.test(url)) return false; }
+        return /\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|ico)(\?|$|#)/i.test(url);
+      }
+      
+      // Scan images
       document.querySelectorAll('img').forEach(img => {
-        if (img.src && !img.src.startsWith('data:') && img.width > 50) {
+        const src = img.src;
+        if (src && isRealImageUrl(src) && img.width > 50) {
           media.push({ 
             type: 'image', 
             source: 'img', 
-            url: img.src, 
+            url: src, 
             width: img.naturalWidth || img.width, 
             height: img.naturalHeight || img.height 
           });
         }
       });
       
-      // Videos
+      // Scan videos — ONLY actual video files
       document.querySelectorAll('video').forEach(vid => {
         const src = vid.src || vid.currentSrc;
-        if (src) media.push({ 
-          type: 'video', 
-          source: 'video', 
-          url: src,
-          width: vid.videoWidth,
-          height: vid.videoHeight
-        });
-        vid.querySelectorAll('source').forEach(s => {
-          if (s.src) media.push({ 
+        if (src && isRealVideoUrl(src)) {
+          media.push({ 
             type: 'video', 
-            source: 'video-src', 
-            url: s.src,
-            width: vid.videoWidth,
-            height: vid.videoHeight
+            source: 'video', 
+            url: src,
+            width: vid.videoWidth || vid.width,
+            height: vid.videoHeight || vid.height,
+            poster: vid.poster || '',
+            isVideo: true
           });
+        }
+        // Check source elements
+        vid.querySelectorAll('source').forEach(s => {
+          if (s.src && isRealVideoUrl(s.src)) {
+            media.push({ 
+              type: 'video', 
+              source: 'video-src', 
+              url: s.src,
+              width: vid.videoWidth || vid.width,
+              height: vid.videoHeight || vid.height,
+              poster: vid.poster || '',
+              isVideo: true
+            });
+          }
         });
       });
       
-      // Canvas
-      document.querySelectorAll('canvas').forEach((c, i) => {
-        if (c.width > 200 && c.height > 200) {
-          try {
-            media.push({ 
-              type: 'canvas', 
-              source: 'canvas', 
-              url: c.toDataURL('image/png'), 
-              width: c.width, 
-              height: c.height 
-            });
-          } catch (e) {
-            media.push({ 
-              type: 'canvas-tainted', 
-              source: 'canvas', 
-              url: `canvas:${i}`, 
-              width: c.width, 
-              height: c.height 
-            });
-          }
+      // Scan links to video files
+      document.querySelectorAll('a[href]').forEach(a => {
+        if (isRealVideoUrl(a.href)) {
+          media.push({ url: a.href, source: 'link', type: 'video', isVideo: true });
         }
       });
       
-      // Background images
+      // Scan CSS background images
       document.querySelectorAll('*').forEach(el => {
         try {
           const bg = getComputedStyle(el).backgroundImage;
           if (bg && bg !== 'none' && !bg.includes('gradient')) {
             const match = bg.match(/url\("?([^"]+)"?\)/);
-            if (match && !match[1].startsWith('data:') && !match[1].includes('svg')) {
+            if (match && isRealImageUrl(match[1])) {
               media.push({ type: 'bg-image', source: 'css-bg', url: match[1] });
             }
           }
@@ -364,7 +381,6 @@ async function scanPage() {
       allMedia.page = results[0].result;
       renderMedia();
       
-      const total = allMedia.images.length + allMedia.videos.length;
       document.getElementById('header-status').textContent = 
         `Ditemukan ${allMedia.images.length} gambar & ${allMedia.videos.length} video`;
     }
@@ -373,7 +389,6 @@ async function scanPage() {
 
 // ─── Download Handlers ──────────────────────────────────────────────
 
-// Download Selected
 document.getElementById('btn-download-selected').addEventListener('click', () => {
   const items = allMedia[currentTab] || [];
   const folder = document.getElementById('folder-input').value || 'MediaGrabber';
@@ -383,7 +398,7 @@ document.getElementById('btn-download-selected').addEventListener('click', () =>
     const item = items[idx];
     if (!item) return;
     const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
-    if (url && !url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('canvas:')) {
+    if (isDownloadable(url)) {
       downloadItems.push({ url, filename: getFilename(url) });
     }
   });
@@ -396,17 +411,15 @@ document.getElementById('btn-download-selected').addEventListener('click', () =>
   startDownload(downloadItems, folder);
 });
 
-// Download All
 document.getElementById('btn-download-all').addEventListener('click', () => {
   const folder = document.getElementById('folder-input').value || 'MediaGrabber';
   const downloadItems = [];
   const seen = new Set();
   
-  // Download all from current tab
   const items = allMedia[currentTab] || [];
   for (const item of items) {
     const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
-    if (url && !url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('canvas:') && !seen.has(url)) {
+    if (isDownloadable(url) && !seen.has(url)) {
       seen.add(url);
       downloadItems.push({ url, filename: getFilename(url) });
     }

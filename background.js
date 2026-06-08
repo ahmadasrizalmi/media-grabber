@@ -1,29 +1,83 @@
-// Background service worker — Media Grabber v2
-// Intercepts ALL network requests for media content
+// Background service worker — Media Grabber v3.1
+// Fixed video detection with proper filtering
 
 const mediaRequests = new Map();
 const interceptedData = [];
+
+// ========== VIDEO URL VALIDATION ==========
+function isRealVideoUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  
+  // Skip common tracking/analytics/player URLs
+  const skipPatterns = [
+    /google-analytics/i,
+    /facebook\.net/i,
+    /doubleclick/i,
+    /pixel/i,
+    /beacon/i,
+    /tracking/i,
+    /analytics/i,
+    /stats\./i,
+    /\.gif\?/i,
+    /\/player\//i,
+    /\/api\//i,
+    /manifest\.m3u8$/i,
+    /\.m3u8\?/i,
+    /\.mpd$/i,
+    /\.mpd\?/i,
+    /segment/i,
+    /chunk/i,
+  ];
+  
+  for (const pattern of skipPatterns) {
+    if (pattern.test(url)) return false;
+  }
+  
+  // Must have video extension
+  return /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v|3gp)(\?|$|#)/i.test(url);
+}
+
+function isRealImageUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  
+  const skipPatterns = [
+    /google-analytics/i,
+    /facebook\.net/i,
+    /doubleclick/i,
+    /pixel/i,
+    /beacon/i,
+    /tracking/i,
+    /1x1/i,
+  ];
+  
+  for (const pattern of skipPatterns) {
+    if (pattern.test(url)) return false;
+  }
+  
+  return /\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|ico)(\?|$|#)/i.test(url);
+}
 
 // ========== INTERCEPT NETWORK REQUESTS ==========
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     const url = details.url;
     
-    // Detect media by content-type patterns in URL
-    const mediaExts = /\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|mp4|webm|mov|avi|mkv|mp3|wav|ogg|flac|aac)(\?|$|#)/i;
-    const mediaPaths = /\/(media|image|upload|render|output|result|asset|file|download|blob)\//i;
-    const customExts = /\.(hk|fke|fte|img|vid)(\?|$|#)/i;
-    
-    // Skip tiny tracking pixels and analytics
+    // Skip non-media domains
     if (url.includes('google-analytics') || url.includes('facebook.net') || 
         url.includes('doubleclick') || url.includes('pixel')) return;
     
-    const isMedia = mediaExts.test(url) || mediaPaths.test(url) || customExts.test(url);
+    // Only capture actual media files
+    const isVideo = isRealVideoUrl(url);
+    const isImage = isRealImageUrl(url);
     
-    if (isMedia) {
+    if (isVideo || isImage) {
       mediaRequests.set(details.requestId, {
         url: url,
         type: details.type,
+        isVideo: isVideo,
+        isImage: isImage,
         time: Date.now(),
         tabId: details.tabId,
         initiator: details.initiator || ''
@@ -33,28 +87,35 @@ chrome.webRequest.onBeforeRequest.addListener(
   { urls: ["<all_urls>"] }
 );
 
-// Capture response headers for content-type
+// Capture response headers for content-type and size
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (mediaRequests.has(details.requestId)) {
       const media = mediaRequests.get(details.requestId);
+      
       const contentType = details.responseHeaders?.find(
         h => h.name.toLowerCase() === 'content-type'
       );
       if (contentType) {
         media.contentType = contentType.value;
         
-        // Also catch generic binary streams that are actually media
-        if (contentType.value.includes('octet-stream') || contentType.value.includes('image') || contentType.value.includes('video')) {
+        // Verify it's actually media
+        if (contentType.value.includes('video/')) {
           media.verified = true;
+          media.isVideo = true;
+        } else if (contentType.value.includes('image/')) {
+          media.verified = true;
+          media.isImage = true;
         }
       }
+      
       const contentLength = details.responseHeaders?.find(
         h => h.name.toLowerCase() === 'content-length'
       );
       if (contentLength) {
         media.size = parseInt(contentLength.value);
       }
+      
       media.status = details.statusCode;
     }
   },
@@ -107,18 +168,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   
   if (msg.type === 'DOWNLOAD_ONE') {
-    // Single download — NO saveAs dialog
     const folder = msg.folder || 'MediaGrabber';
     const filename = `${folder}/${msg.filename || 'media.webp'}`;
     
     chrome.downloads.download({
       url: msg.url,
       filename: filename,
-      saveAs: false,  // AUTO DOWNLOAD — no dialog!
+      saveAs: false,
       conflictAction: 'uniquify'
     }, (downloadId) => {
       if (chrome.runtime.lastError) {
-        // Fallback: try without folder
         chrome.downloads.download({
           url: msg.url,
           filename: msg.filename || 'media.webp',
@@ -131,7 +190,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   
   if (msg.type === 'DOWNLOAD_BATCH') {
-    // Batch download — queue all files
     if (downloadState.isDownloading) {
       sendResponse({ ok: false, error: 'Already downloading' });
       return true;
@@ -170,7 +228,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 function processDownloadQueue() {
   if (!downloadState.isDownloading || downloadState.queue.length === 0) {
     downloadState.isDownloading = false;
-    // Notify popup that downloads are done
     chrome.runtime.sendMessage({
       type: 'DOWNLOAD_COMPLETE',
       completed: downloadState.completed,
@@ -188,7 +245,7 @@ function processDownloadQueue() {
   chrome.downloads.download({
     url: item.url,
     filename: filename,
-    saveAs: false,  // AUTO — no dialog!
+    saveAs: false,
     conflictAction: 'uniquify'
   }, (downloadId) => {
     if (chrome.runtime.lastError) {
@@ -203,12 +260,10 @@ function processDownloadQueue() {
         conflictAction: 'uniquify'
       }, () => {
         if (!chrome.runtime.lastError) {
-          downloadState.failed--; // Fallback succeeded
+          downloadState.failed--;
           downloadState.completed++;
         }
-        downloadState.completed_count = downloadState.completed + downloadState.failed;
         
-        // Progress update
         chrome.runtime.sendMessage({
           type: 'DOWNLOAD_PROGRESS',
           completed: downloadState.completed,
@@ -216,7 +271,6 @@ function processDownloadQueue() {
           total: downloadState.total
         }).catch(() => {});
         
-        // Next item with small delay to avoid overwhelming
         setTimeout(() => processDownloadQueue(), 300);
       });
       return;
@@ -224,7 +278,6 @@ function processDownloadQueue() {
     
     downloadState.completed++;
     
-    // Progress update
     chrome.runtime.sendMessage({
       type: 'DOWNLOAD_PROGRESS',
       completed: downloadState.completed,
@@ -232,7 +285,6 @@ function processDownloadQueue() {
       total: downloadState.total
     }).catch(() => {});
     
-    // Next item
     setTimeout(() => processDownloadQueue(), 300);
   });
 }
@@ -252,14 +304,9 @@ chrome.downloads.onChanged.addListener((delta) => {
 function getExtension(url) {
   try {
     const pathname = new URL(url).pathname;
-    const match = pathname.match(/\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|mp4|webm|mov|avi|mp3|wav|ogg)(\?|$)/i);
+    const match = pathname.match(/\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|mp4|webm|mov|avi|mkv|mp3|wav|ogg)(\?|$)/i);
     if (match) return '.' + match[1].toLowerCase();
-    
-    // Check for custom extensions
-    const customMatch = pathname.match(/\.(hk|fke|fte)(\?|$)/i);
-    if (customMatch) return '.webp'; // Convert custom to webp
-    
-    return '.webp'; // Default
+    return '.webp';
   } catch {
     return '.webp';
   }
@@ -272,4 +319,4 @@ function sanitizeFilename(name) {
     .substring(0, 100);
 }
 
-console.log('[Media Grabber] Background service worker loaded');
+console.log('[Media Grabber] Background service worker v3.1 loaded');
