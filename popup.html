@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      width: 420px; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a; 
+      color: #e2e8f0; 
+    }
+    .header { 
+      background: linear-gradient(135deg, #6366f1, #8b5cf6); 
+      padding: 16px; 
+      text-align: center; 
+    }
+    .header h1 { font-size: 16px; color: white; font-weight: 700; }
+    .header p { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 4px; }
+    .toolbar {
+      display: flex;
+      gap: 6px;
+      padding: 10px 12px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+    }
+    .toolbar input {
+      flex: 1;
+      padding: 8px 12px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 12px;
+    }
+    .toolbar input:focus { outline: none; border-color: #6366f1; }
+    .toolbar input::placeholder { color: #64748b; }
+    .tabs { 
+      display: flex; 
+      background: #1e293b; 
+      border-bottom: 1px solid #334155; 
+    }
+    .tab { 
+      flex: 1; 
+      padding: 10px; 
+      text-align: center; 
+      cursor: pointer; 
+      font-size: 11px; 
+      font-weight: 600;
+      color: #94a3b8;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab:hover { color: #e2e8f0; }
+    .tab.active { 
+      color: #8b5cf6; 
+      border-bottom-color: #8b5cf6; 
+    }
+    .tab .count {
+      background: #334155;
+      color: #94a3b8;
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-size: 10px;
+      margin-left: 4px;
+    }
+    .tab.active .count {
+      background: #8b5cf6;
+      color: white;
+    }
+    .content { 
+      max-height: 380px; 
+      overflow-y: auto; 
+      padding: 8px; 
+    }
+    .media-item { 
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px; 
+      border-radius: 10px; 
+      transition: background 0.15s;
+    }
+    .media-item:hover { background: #1e293b; }
+    .media-preview { 
+      width: 48px; 
+      height: 48px; 
+      object-fit: cover; 
+      border-radius: 8px; 
+      background: #1e293b; 
+      flex-shrink: 0;
+    }
+    .media-preview-placeholder {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .media-info { flex: 1; min-width: 0; }
+    .media-type { 
+      font-size: 10px; 
+      color: #8b5cf6; 
+      font-weight: 700; 
+      text-transform: uppercase; 
+    }
+    .media-url { 
+      font-size: 11px; 
+      color: #94a3b8; 
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .btn { 
+      background: linear-gradient(135deg, #6366f1, #8b5cf6); 
+      color: white; 
+      border: none; 
+      padding: 8px 16px; 
+      border-radius: 10px; 
+      font-size: 12px; 
+      font-weight: 700; 
+      cursor: pointer; 
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-sm { 
+      padding: 6px; 
+      font-size: 13px; 
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: none;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+    }
+    .btn-sm:hover { background: #6366f1; border-color: #6366f1; }
+    .empty { 
+      text-align: center; 
+      padding: 40px 16px; 
+      color: #64748b; 
+      font-size: 13px;
+    }
+    .footer { 
+      position: sticky;
+      bottom: 0;
+      background: #0f172a; 
+      padding: 10px 12px; 
+      border-top: 1px solid #334155; 
+    }
+    .footer-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .footer-row:last-child { margin-bottom: 0; }
+    .progress {
+      display: none;
+      padding: 8px 0;
+    }
+    .progress.active { display: block; }
+    .progress-text { font-size: 11px; color: #94a3b8; margin-bottom: 6px; }
+    .progress-bar {
+      height: 4px;
+      background: #334155;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #8b5cf6);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚡ Media Grabber</h1>
+    <p id="header-status">Universal media extractor</p>
+  </div>
+  
+  <div class="toolbar">
+    <input type="text" id="folder" placeholder="Download folder (default: MediaGrabber)" value="MediaGrabber">
+  </div>
+  
+  <div class="tabs">
+    <div class="tab active" data-tab="page">Page Scan <span class="count" id="page-count">0</span></div>
+    <div class="tab" data-tab="network">Network <span class="count" id="network-count">0</span></div>
+    <div class="tab" data-tab="intercepted">Intercepted <span class="count" id="intercepted-count">0</span></div>
+  </div>
+  
+  <div class="content" id="media-list">
+    <div class="empty">
+      <p>Click "Scan" to find media on this page</p>
+    </div>
+  </div>
+  
+  <div class="footer">
+    <div class="progress" id="progress">
+      <div class="progress-text" id="progress-text">0 / 0</div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="footer-row">
+      <button class="btn" id="scan-btn" style="flex:1">🔄 Scan Page</button>
+      <button class="btn" id="dl-all-btn" style="flex:2">⬇️ Download All (<span id="dl-count">0</span>)</button>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
