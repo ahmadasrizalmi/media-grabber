@@ -434,7 +434,95 @@ window.__mediaGrabber_exportBuffers = function() {
   return exported;
 };
 
-// ========== 9. PLATFORM VIDEO EXTRACTOR ==========
+// ========== 9. DOCUMENT CAPTURE ==========
+// Handle document capture requests from popup
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'CAPTURE_DOCUMENT') {
+    (async () => {
+      try {
+        if (!window.__mediaGrabber_docCapture) {
+          sendResponse({ success: false, error: 'Document capture not loaded' });
+          return;
+        }
+        
+        const capturer = new window.__mediaGrabber_docCapture();
+        const site = window.__mediaGrabber_docCapture.detectSite();
+        
+        if (!site) {
+          sendResponse({ success: false, error: 'Not a supported document site' });
+          return;
+        }
+        
+        let result;
+        if (msg.autoScroll) {
+          // Auto-scroll to load all pages first
+          result = await capturer.autoScrollLoadAll((progress) => {
+            chrome.runtime.sendMessage({ type: 'DOC_PROGRESS', ...progress }).catch(() => {});
+          });
+        } else {
+          result = await capturer.capture();
+        }
+        
+        // Convert blobs to data URLs for transfer to popup
+        const pages = [];
+        for (const page of result.pages) {
+          if (typeof page === 'string') {
+            pages.push({ type: 'url', data: page });
+          } else if (page instanceof Blob) {
+            const dataUrl = await blobToDataUrl(page);
+            pages.push({ type: 'blob', data: dataUrl, size: page.size });
+          }
+        }
+        
+        sendResponse({ success: true, site: result.site, pages });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+  
+  if (msg.type === 'BUILD_PDF') {
+    (async () => {
+      try {
+        if (!window.__mediaGrabber_pdfBuilder) {
+          sendResponse({ success: false, error: 'PDF builder not loaded' });
+          return;
+        }
+        
+        const { pages } = msg;
+        const imageSources = pages.map(p => {
+          if (p.type === 'url') return p.data;
+          if (p.type === 'blob') return p.data; // data URL
+          return p;
+        });
+        
+        const blob = await window.__mediaGrabber_pdfBuilder.createPDFFromImages(
+          imageSources,
+          (progress) => {
+            chrome.runtime.sendMessage({ type: 'DOC_PROGRESS', ...progress }).catch(() => {});
+          }
+        );
+        
+        const dataUrl = await blobToDataUrl(blob);
+        sendResponse({ success: true, pdf: dataUrl, size: blob.size });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+});
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ========== 10. PLATFORM VIDEO EXTRACTOR ==========
 // Handle platform extraction requests from popup
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'EXTRACT_PLATFORM') {

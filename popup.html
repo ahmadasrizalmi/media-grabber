@@ -627,6 +627,66 @@
       position: relative;
       flex-shrink: 0;
     }
+    
+    /* Document capture */
+    .doc-capture-bar {
+      background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .doc-capture-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #2E7D32;
+      margin-bottom: 4px;
+    }
+    .doc-capture-desc {
+      font-size: 12px;
+      color: #558B2F;
+      margin-bottom: 12px;
+    }
+    .doc-capture-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      background: #2E7D32;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .doc-capture-btn:hover { background: #1B5E20; }
+    .doc-capture-btn:active { transform: scale(0.98); }
+    .doc-capture-btn:disabled { background: #A5D6A7; cursor: not-allowed; }
+    .doc-pages-preview {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .doc-page-thumb {
+      aspect-ratio: 0.707;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #F2F2F7;
+      border: 1px solid #E8E8ED;
+    }
+    .doc-page-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .doc-page-count {
+      font-size: 12px;
+      color: #86868B;
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -657,6 +717,11 @@
         <span>📝</span>
         <span>Subs</span>
         <span class="segment-count" id="subtitles-count">0</span>
+      </div>
+      <div class="segment" data-tab="docs">
+        <span>📄</span>
+        <span>Docs</span>
+        <span class="segment-count" id="docs-count">0</span>
       </div>
     </div>
   </div>

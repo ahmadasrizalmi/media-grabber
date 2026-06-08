@@ -142,6 +142,7 @@ function renderMedia() {
   document.getElementById('images-count').textContent = allMedia.images.length;
   document.getElementById('videos-count').textContent = allMedia.videos.length + allMedia.streams.length;
   document.getElementById('subtitles-count').textContent = allMedia.subtitles?.length || 0;
+  document.getElementById('docs-count').textContent = '—';
   document.getElementById('total-count').textContent = 
     `${allMedia.images.length + allMedia.videos.length + allMedia.streams.length + (allMedia.subtitles?.length || 0)} items`;
   
@@ -292,7 +293,12 @@ document.querySelectorAll('.segment').forEach(segment => {
     segment.classList.add('active');
     currentTab = segment.dataset.tab;
     selectedItems.clear();
-    renderMedia();
+    
+    if (currentTab === 'docs') {
+      captureDocument();
+    } else {
+      renderMedia();
+    }
   });
 });
 
@@ -626,6 +632,140 @@ function formatSRTTime(seconds) {
   const ms = Math.floor((seconds % 1) * 1000);
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }
+
+// ─── Document Capture (Scribd, Slideshare, etc) ────────────────────
+
+let capturedDocPages = [];
+
+async function captureDocument(autoScroll = false) {
+  const tab = await getCurrentTab();
+  const statusEl = document.getElementById('header-status');
+  const list = document.getElementById('media-list');
+  
+  statusEl.textContent = '📄 Detecting document site...';
+  
+  chrome.tabs.sendMessage(tab.id, { 
+    type: 'CAPTURE_DOCUMENT', 
+    autoScroll: autoScroll 
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      statusEl.textContent = '❌ Refresh halaman dulu, lalu coba lagi';
+      return;
+    }
+    
+    if (!response?.success) {
+      statusEl.textContent = `❌ ${response?.error || 'Not a document site'}`;
+      // Show helpful message
+      list.innerHTML = `
+        <div class="doc-capture-bar">
+          <div class="doc-capture-title">📄 Document Capture</div>
+          <div class="doc-capture-desc">${response?.error || 'Halaman ini bukan situs dokumen yang didukung'}</div>
+          <div style="font-size:12px;color:#86868B;margin-top:8px;">
+            Didukung: Scribd, Slideshare, Issuu, Academia, PDFDrive, Google Docs
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    const { site, pages } = response;
+    capturedDocPages = pages;
+    
+    statusEl.textContent = `✅ ${site}: ${pages.length} halaman ditemukan`;
+    
+    // Show capture UI
+    list.innerHTML = `
+      <div class="doc-capture-bar">
+        <div class="doc-capture-title">📄 ${site.charAt(0).toUpperCase() + site.slice(1)} Document</div>
+        <div class="doc-capture-desc">${pages.length} halaman terdeteksi</div>
+        <button class="doc-capture-btn" id="btn-save-pdf" ${pages.length === 0 ? 'disabled' : ''}>
+          📥 Save as PDF
+        </button>
+        ${!autoScroll ? `
+          <button class="doc-capture-btn" id="btn-auto-scroll" style="margin-left:8px;background:#1565C0;">
+            🔄 Scroll & Capture All
+          </button>
+        ` : ''}
+        <div class="doc-page-count">${pages.length} pages captured</div>
+        <div class="doc-pages-preview">
+          ${pages.slice(0, 9).map((p, i) => `
+            <div class="doc-page-thumb">
+              <img src="${p.data || p}" alt="Page ${i+1}" loading="lazy" onerror="this.parentElement.innerHTML='<div style=display:flex;align-items:center;justify-content:center;height:100%;font-size:24px>📄</div>'">
+            </div>
+          `).join('')}
+          ${pages.length > 9 ? `<div class="doc-page-thumb" style="display:flex;align-items:center;justify-content:center;font-size:14px;color:#86868B;">+${pages.length - 9} more</div>` : ''}
+        </div>
+      </div>
+    `;
+    
+    // Save as PDF button
+    document.getElementById('btn-save-pdf')?.addEventListener('click', () => buildAndSavePDF(pages, site));
+    
+    // Auto-scroll button
+    document.getElementById('btn-auto-scroll')?.addEventListener('click', () => captureDocument(true));
+  });
+}
+
+async function buildAndSavePDF(pages, site) {
+  const tab = await getCurrentTab();
+  const statusEl = document.getElementById('header-status');
+  const progressEl = document.getElementById('progress');
+  
+  statusEl.textContent = '🔨 Building PDF...';
+  progressEl.classList.add('active');
+  document.getElementById('progress-text').textContent = 'Processing pages...';
+  document.getElementById('progress-fill').style.width = '0%';
+  
+  chrome.tabs.sendMessage(tab.id, { 
+    type: 'BUILD_PDF', 
+    pages: pages 
+  }, (response) => {
+    progressEl.classList.remove('active');
+    
+    if (chrome.runtime.lastError) {
+      statusEl.textContent = '❌ Failed to build PDF';
+      return;
+    }
+    
+    if (!response?.success) {
+      statusEl.textContent = `❌ ${response?.error || 'PDF build failed'}`;
+      return;
+    }
+    
+    // Download the PDF
+    const { pdf, size } = response;
+    const filename = `${site}_document_${Date.now()}.pdf`;
+    
+    chrome.runtime.sendMessage({
+      type: 'DOWNLOAD_ONE',
+      url: pdf,
+      filename: filename,
+      folder: document.getElementById('folder-input').value || 'MediaGrabber'
+    });
+    
+    statusEl.textContent = `✅ PDF saved: ${filename} (${formatSize(size)})`;
+  });
+}
+
+// Listen for doc progress
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'DOC_PROGRESS') {
+    const progressEl = document.getElementById('progress');
+    progressEl.classList.add('active');
+    
+    if (msg.stage === 'scrolling') {
+      document.getElementById('progress-text').textContent = `📜 Scrolling... ${msg.scroll || 0}%`;
+      document.getElementById('progress-fill').style.width = `${msg.scroll || 0}%`;
+      document.getElementById('header-status').textContent = `📄 ${msg.pagesFound || 0} pages found...`;
+    } else if (msg.stage === 'processing') {
+      document.getElementById('progress-text').textContent = `📄 Processing page ${msg.current}/${msg.total}...`;
+      document.getElementById('progress-fill').style.width = `${Math.round((msg.current / msg.total) * 100)}%`;
+    } else if (msg.stage === 'building') {
+      document.getElementById('progress-text').textContent = '🔨 Building PDF...';
+      document.getElementById('progress-fill').style.width = '90%';
+    }
+  }
+});
 
 // ─── Platform Scan (YouTube, TikTok, Instagram, etc) ──────────────
 
