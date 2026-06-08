@@ -473,13 +473,45 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
     
-    // Videos
+    // Videos — enhanced detection
     document.querySelectorAll('video').forEach(vid => {
       const src = vid.src || vid.currentSrc;
-      if (src) mediaList.push({ url: src, source: 'video', type: 'video' });
-      vid.querySelectorAll('source').forEach(s => {
-        if (s.src) mediaList.push({ url: s.src, source: 'video-src', type: 'video' });
+      if (src) mediaList.push({ 
+        url: src, 
+        source: 'video', 
+        type: 'video',
+        width: vid.videoWidth || vid.width,
+        height: vid.videoHeight || vid.height,
+        poster: vid.poster || ''
       });
+      vid.querySelectorAll('source').forEach(s => {
+        if (s.src) mediaList.push({ 
+          url: s.src, 
+          source: 'video-src', 
+          type: 'video',
+          width: vid.videoWidth || vid.width,
+          height: vid.videoHeight || vid.height
+        });
+      });
+    });
+    
+    // Enhanced video detection: scan for video URLs in data attributes and links
+    document.querySelectorAll('[data-video], [data-src], [data-mp4], [data-webm], [data-m3u8]').forEach(el => {
+      const attrs = ['data-video', 'data-src', 'data-mp4', 'data-webm', 'data-m3u8'];
+      attrs.forEach(attr => {
+        const val = el.getAttribute(attr);
+        if (val && (val.includes('.mp4') || val.includes('.webm') || val.includes('.m3u8') || val.includes('video'))) {
+          mediaList.push({ url: val, source: 'data-attr', type: 'video' });
+        }
+      });
+    });
+    
+    // Scan links that point to video files
+    document.querySelectorAll('a[href]').forEach(a => {
+      const href = a.href;
+      if (/\.(mp4|webm|mov|avi|mkv|flv|m3u8)(\?|$|#)/i.test(href)) {
+        mediaList.push({ url: href, source: 'link', type: 'video' });
+      }
     });
     
     // Canvas

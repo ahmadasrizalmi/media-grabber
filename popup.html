@@ -1,218 +1,532 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
   <meta charset="utf-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    
     body { 
-      width: 420px; 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0f172a; 
-      color: #e2e8f0; 
+      width: 400px; 
+      min-height: 500px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #F2F2F7; 
+      color: #1D1D1F;
+      -webkit-font-smoothing: antialiased;
     }
+    
+    /* Header */
     .header { 
-      background: linear-gradient(135deg, #6366f1, #8b5cf6); 
-      padding: 16px; 
-      text-align: center; 
+      background: white;
+      padding: 20px 16px 12px;
+      border-bottom: 0.5px solid #C6C6C8;
     }
-    .header h1 { font-size: 16px; color: white; font-weight: 700; }
-    .header p { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 4px; }
-    .toolbar {
-      display: flex;
-      gap: 6px;
-      padding: 10px 12px;
-      background: #1e293b;
-      border-bottom: 1px solid #334155;
-    }
-    .toolbar input {
-      flex: 1;
-      padding: 8px 12px;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      color: #e2e8f0;
-      font-size: 12px;
-    }
-    .toolbar input:focus { outline: none; border-color: #6366f1; }
-    .toolbar input::placeholder { color: #64748b; }
-    .tabs { 
-      display: flex; 
-      background: #1e293b; 
-      border-bottom: 1px solid #334155; 
-    }
-    .tab { 
-      flex: 1; 
-      padding: 10px; 
-      text-align: center; 
-      cursor: pointer; 
-      font-size: 11px; 
-      font-weight: 600;
-      color: #94a3b8;
-      border-bottom: 2px solid transparent;
-      transition: all 0.15s;
-    }
-    .tab:hover { color: #e2e8f0; }
-    .tab.active { 
-      color: #8b5cf6; 
-      border-bottom-color: #8b5cf6; 
-    }
-    .tab .count {
-      background: #334155;
-      color: #94a3b8;
-      padding: 1px 6px;
-      border-radius: 8px;
-      font-size: 10px;
-      margin-left: 4px;
-    }
-    .tab.active .count {
-      background: #8b5cf6;
-      color: white;
-    }
-    .content { 
-      max-height: 380px; 
-      overflow-y: auto; 
-      padding: 8px; 
-    }
-    .media-item { 
+    .header-top {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px; 
-      border-radius: 10px; 
-      transition: background 0.15s;
+      justify-content: space-between;
+      margin-bottom: 12px;
     }
-    .media-item:hover { background: #1e293b; }
-    .media-preview { 
-      width: 48px; 
-      height: 48px; 
-      object-fit: cover; 
-      border-radius: 8px; 
-      background: #1e293b; 
-      flex-shrink: 0;
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .media-preview-placeholder {
-      width: 48px;
-      height: 48px;
+    .header-icon {
+      width: 32px;
+      height: 32px;
+      background: #007AFF;
       border-radius: 8px;
-      background: #1e293b;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
+      font-size: 16px;
+    }
+    .header h1 { 
+      font-size: 20px; 
+      font-weight: 700; 
+      letter-spacing: -0.3px;
+    }
+    .header-count {
+      font-size: 13px;
+      color: #86868B;
+    }
+    .header-status {
+      font-size: 12px;
+      color: #86868B;
+      margin-top: 2px;
+    }
+    
+    /* Search Bar */
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 10px 12px;
+      background: #F2F2F7;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      color: #1D1D1F;
+    }
+    .search-input:focus { 
+      outline: none; 
+      background: #E8E8ED; 
+    }
+    .search-input::placeholder { color: #86868B; }
+    
+    /* Segmented Control (Tabs) */
+    .segmented-control {
+      display: flex;
+      background: #F2F2F7;
+      border-radius: 10px;
+      padding: 2px;
+      margin-top: 12px;
+    }
+    .segment {
+      flex: 1;
+      padding: 8px 12px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #86868B;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .segment:hover { color: #1D1D1F; }
+    .segment.active { 
+      background: white; 
+      color: #1D1D1F;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    }
+    .segment-count {
+      background: #E8E8ED;
+      color: #86868B;
+      padding: 1px 6px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .segment.active .segment-count {
+      background: #007AFF;
+      color: white;
+    }
+    
+    /* Toolbar */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: white;
+      border-bottom: 0.5px solid #C6C6C8;
+    }
+    .toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .toolbar-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 10px;
+      background: #F2F2F7;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #1D1D1F;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .toolbar-btn:hover { background: #E8E8ED; }
+    .toolbar-btn:active { background: #D1D1D6; }
+    .toolbar-btn svg { width: 14px; height: 14px; }
+    
+    .select-all-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #1D1D1F;
+      cursor: pointer;
+    }
+    .select-all-label input {
+      width: 18px;
+      height: 18px;
+      accent-color: #007AFF;
+    }
+    
+    /* Media List */
+    .media-list { 
+      flex: 1;
+      overflow-y: auto; 
+      padding: 8px;
+      max-height: 320px;
+    }
+    .media-list::-webkit-scrollbar { width: 4px; }
+    .media-list::-webkit-scrollbar-thumb { 
+      background: #C6C6C8; 
+      border-radius: 2px; 
+    }
+    
+    /* Media Card */
+    .media-card { 
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: white;
+      border-radius: 12px;
+      margin-bottom: 6px;
+      transition: all 0.15s;
+      cursor: default;
+      border: 1px solid transparent;
+    }
+    .media-card:hover { 
+      border-color: #007AFF;
+      box-shadow: 0 2px 8px rgba(0, 122, 255, 0.1);
+    }
+    .media-card.selected {
+      background: #F0F8FF;
+      border-color: #007AFF;
+    }
+    
+    .media-checkbox {
+      width: 20px;
+      height: 20px;
+      accent-color: #007AFF;
       flex-shrink: 0;
     }
-    .media-info { flex: 1; min-width: 0; }
-    .media-type { 
-      font-size: 10px; 
-      color: #8b5cf6; 
-      font-weight: 700; 
-      text-transform: uppercase; 
+    
+    .media-thumb { 
+      width: 56px; 
+      height: 56px; 
+      object-fit: cover; 
+      border-radius: 10px; 
+      background: #F2F2F7; 
+      flex-shrink: 0;
     }
+    .media-thumb-placeholder {
+      width: 56px; 
+      height: 56px; 
+      border-radius: 10px; 
+      background: #F2F2F7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    
+    .media-info { 
+      flex: 1; 
+      min-width: 0; 
+    }
+    .media-type-badge { 
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      background: #F2F2F7;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #86868B;
+      margin-bottom: 4px;
+    }
+    .media-type-badge.image { background: #E3F2FD; color: #1976D2; }
+    .media-type-badge.video { background: #FCE4EC; color: #C62828; }
+    
     .media-url { 
-      font-size: 11px; 
-      color: #94a3b8; 
+      font-size: 12px; 
+      color: #1D1D1F;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      margin-bottom: 4px;
     }
-    .btn { 
-      background: linear-gradient(135deg, #6366f1, #8b5cf6); 
-      color: white; 
-      border: none; 
-      padding: 8px 16px; 
-      border-radius: 10px; 
-      font-size: 12px; 
-      font-weight: 700; 
-      cursor: pointer; 
-      white-space: nowrap;
-      transition: opacity 0.15s;
+    .media-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: #86868B;
     }
-    .btn:hover { opacity: 0.85; }
-    .btn-sm { 
-      padding: 6px; 
-      font-size: 13px; 
+    .media-size {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .media-dimensions {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    
+    .media-download-btn {
       width: 32px;
       height: 32px;
+      background: #F2F2F7;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 8px;
-      background: none;
-      border: 1px solid #334155;
-      color: #e2e8f0;
+      color: #007AFF;
+      transition: all 0.15s;
+      flex-shrink: 0;
     }
-    .btn-sm:hover { background: #6366f1; border-color: #6366f1; }
-    .empty { 
+    .media-download-btn:hover { 
+      background: #007AFF; 
+      color: white; 
+    }
+    .media-download-btn:active { transform: scale(0.95); }
+    .media-download-btn svg { width: 16px; height: 16px; }
+    
+    /* Empty State */
+    .empty-state { 
       text-align: center; 
-      padding: 40px 16px; 
-      color: #64748b; 
+      padding: 48px 16px; 
+      color: #86868B; 
+    }
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+    .empty-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1D1D1F;
+      margin-bottom: 4px;
+    }
+    .empty-text {
       font-size: 13px;
     }
+    
+    /* Footer */
     .footer { 
       position: sticky;
       bottom: 0;
-      background: #0f172a; 
-      padding: 10px 12px; 
-      border-top: 1px solid #334155; 
+      background: white;
+      padding: 12px 16px;
+      border-top: 0.5px solid #C6C6C8;
     }
     .footer-row {
       display: flex;
+      gap: 8px;
+    }
+    
+    /* Folder Input */
+    .folder-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .folder-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #86868B;
+      white-space: nowrap;
+    }
+    .folder-input {
+      flex: 1;
+      padding: 8px 10px;
+      background: #F2F2F7;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #1D1D1F;
+    }
+    .folder-input:focus { outline: none; background: #E8E8ED; }
+    
+    /* Buttons */
+    .btn { 
+      flex: 1;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       gap: 6px;
-      margin-bottom: 8px;
     }
-    .footer-row:last-child { margin-bottom: 0; }
-    .progress {
+    .btn:active { transform: scale(0.98); }
+    
+    .btn-primary {
+      background: #007AFF;
+      color: white;
+    }
+    .btn-primary:hover { background: #0066CC; }
+    .btn-primary:disabled { 
+      background: #B0B0B0; 
+      cursor: not-allowed; 
+    }
+    
+    .btn-secondary {
+      background: #F2F2F7;
+      color: #1D1D1F;
+    }
+    .btn-secondary:hover { background: #E8E8ED; }
+    
+    /* Progress */
+    .progress-container {
       display: none;
-      padding: 8px 0;
+      margin-bottom: 10px;
     }
-    .progress.active { display: block; }
-    .progress-text { font-size: 11px; color: #94a3b8; margin-bottom: 6px; }
+    .progress-container.active { display: block; }
+    
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .progress-text { 
+      font-size: 12px; 
+      color: #86868B; 
+    }
+    .progress-count {
+      font-size: 12px;
+      font-weight: 600;
+      color: #007AFF;
+    }
     .progress-bar {
       height: 4px;
-      background: #334155;
+      background: #E8E8ED;
       border-radius: 2px;
       overflow: hidden;
     }
     .progress-fill {
       height: 100%;
-      background: linear-gradient(90deg, #6366f1, #8b5cf6);
+      background: #007AFF;
       border-radius: 2px;
       transition: width 0.3s;
     }
+    
+    /* Loading Spinner */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 32px;
+      color: #86868B;
+      font-size: 13px;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #E8E8ED;
+      border-top-color: #007AFF;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
+  <!-- Header -->
   <div class="header">
-    <h1>⚡ Media Grabber</h1>
-    <p id="header-status">Universal media extractor</p>
-  </div>
-  
-  <div class="toolbar">
-    <input type="text" id="folder" placeholder="Download folder (default: MediaGrabber)" value="MediaGrabber">
-  </div>
-  
-  <div class="tabs">
-    <div class="tab active" data-tab="page">Page Scan <span class="count" id="page-count">0</span></div>
-    <div class="tab" data-tab="network">Network <span class="count" id="network-count">0</span></div>
-    <div class="tab" data-tab="intercepted">Intercepted <span class="count" id="intercepted-count">0</span></div>
-  </div>
-  
-  <div class="content" id="media-list">
-    <div class="empty">
-      <p>Click "Scan" to find media on this page</p>
+    <div class="header-top">
+      <div class="header-title">
+        <div class="header-icon">📥</div>
+        <h1>Media Grabber</h1>
+      </div>
+      <div class="header-count" id="total-count">0 items</div>
     </div>
-  </div>
-  
-  <div class="footer">
-    <div class="progress" id="progress">
-      <div class="progress-text" id="progress-text">0 / 0</div>
-      <div class="progress-bar">
-        <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+    <div class="header-status" id="header-status">Siap untuk scan</div>
+    
+    <!-- Segmented Control -->
+    <div class="segmented-control">
+      <div class="segment active" data-tab="images">
+        <span>🖼️</span>
+        <span>Images</span>
+        <span class="segment-count" id="images-count">0</span>
+      </div>
+      <div class="segment" data-tab="videos">
+        <span>🎬</span>
+        <span>Videos</span>
+        <span class="segment-count" id="videos-count">0</span>
       </div>
     </div>
+  </div>
+  
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <label class="select-all-label">
+        <input type="checkbox" id="select-all" checked>
+        <span>Pilih Semua</span>
+      </label>
+    </div>
+    <button class="toolbar-btn" id="refresh-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M23 4v6h-6M1 20v-6h6"/>
+        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+      </svg>
+      <span>Scan</span>
+    </button>
+  </div>
+  
+  <!-- Media List -->
+  <div class="media-list" id="media-list">
+    <div class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">Belum Ada Media</div>
+      <div class="empty-text">Klik "Scan" untuk mencari gambar & video di halaman ini</div>
+    </div>
+  </div>
+  
+  <!-- Footer -->
+  <div class="footer">
+    <div class="folder-row">
+      <span class="folder-label">📁 Folder:</span>
+      <input type="text" class="folder-input" id="folder-input" value="MediaGrabber" placeholder="Nama folder download">
+    </div>
+    
+    <div class="progress-container" id="progress">
+      <div class="progress-header">
+        <span class="progress-text" id="progress-text">Mengunduh...</span>
+        <span class="progress-count" id="progress-count">0 / 0</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+      </div>
+    </div>
+    
     <div class="footer-row">
-      <button class="btn" id="scan-btn" style="flex:1">🔄 Scan Page</button>
-      <button class="btn" id="dl-all-btn" style="flex:2">⬇️ Download All (<span id="dl-count">0</span>)</button>
+      <button class="btn btn-secondary" id="btn-download-selected">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Download Terpilih</span>
+        <span id="selected-count">(0)</span>
+      </button>
+      <button class="btn btn-primary" id="btn-download-all">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Download Semua</span>
+      </button>
     </div>
   </div>
   

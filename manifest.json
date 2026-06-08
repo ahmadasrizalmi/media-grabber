@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Grabber",
-  "version": "2.0",
-  "description": "Universal media extractor — intercept & batch download images, videos, and more from any website",
+  "version": "3.0",
+  "description": "Apple-style media grabber — batch download images & videos from any website with beautiful UI",
   "permissions": [
     "webRequest",
     "activeTab",
