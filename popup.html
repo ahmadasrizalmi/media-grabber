@@ -547,6 +547,86 @@
       color: #1976D2;
       margin-bottom: 8px;
     }
+    
+    /* Video Player */
+    .player-body { padding: 12px; }
+    .player-info {
+      padding: 8px 0;
+      font-size: 12px;
+      color: #86868B;
+    }
+    .player-actions {
+      display: flex;
+      gap: 8px;
+      padding-top: 8px;
+    }
+    
+    /* Subtitle items */
+    .subtitle-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .subtitle-item:hover { background: #F2F2F7; }
+    .subtitle-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: #FFF3E0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .subtitle-info { flex: 1; }
+    .subtitle-lang {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1D1D1F;
+    }
+    .subtitle-detail {
+      font-size: 11px;
+      color: #86868B;
+    }
+    .subtitle-badge {
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      background: #FFF3E0;
+      color: #E65100;
+    }
+    .subtitle-badge.auto {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    
+    /* Preview button */
+    .preview-btn {
+      width: 24px;
+      height: 24px;
+      background: rgba(0,0,0,0.5);
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      position: absolute;
+      bottom: 4px;
+      left: 4px;
+    }
+    .media-thumb-wrapper {
+      position: relative;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -572,6 +652,11 @@
         <span>🎬</span>
         <span>Videos</span>
         <span class="segment-count" id="videos-count">0</span>
+      </div>
+      <div class="segment" data-tab="subtitles">
+        <span>📝</span>
+        <span>Subs</span>
+        <span class="segment-count" id="subtitles-count">0</span>
       </div>
     </div>
   </div>
@@ -653,6 +738,30 @@
       </div>
       <div class="modal-body" id="modal-body">
         <!-- Dynamic content -->
+      </div>
+    </div>
+  </div>
+  
+  <!-- Video Player Modal -->
+  <div class="modal-overlay" id="player-modal" style="display:none;">
+    <div class="modal-content" style="max-width:380px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="player-title">Preview</h3>
+        <button class="modal-close" id="player-close">✕</button>
+      </div>
+      <div class="player-body">
+        <video id="player-video" controls style="width:100%;border-radius:12px;background:#000;"></video>
+        <div class="player-info" id="player-info"></div>
+        <div class="player-actions">
+          <button class="btn btn-primary" id="player-download" style="flex:1;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>Download</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>

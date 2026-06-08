@@ -65,6 +65,7 @@ function classifyAllMedia() {
   const images = [];
   const videos = [];
   const streams = [];  // HLS/DASH streams
+  const subtitles = []; // Subtitles/captions
   const seen = new Set();
   
   const allSources = [
@@ -89,6 +90,14 @@ function classifyAllMedia() {
     }
     
     if (!url.startsWith('http://') && !url.startsWith('https://')) continue;
+    
+    // Subtitles
+    if (item.isSubtitle || item.type === 'subtitle') {
+      item._type = 'subtitle';
+      item._downloadable = true;
+      subtitles.push(item);
+      continue;
+    }
     
     // Classify based on URL patterns
     if (item.isManifest || isVideoManifest(url)) {
@@ -118,6 +127,7 @@ function classifyAllMedia() {
   allMedia.images = images;
   allMedia.videos = videos;
   allMedia.streams = streams;
+  allMedia.subtitles = subtitles;
 }
 
 // ─── Render Media List ──────────────────────────────────────────────
@@ -131,8 +141,9 @@ function renderMedia() {
   // Update counts
   document.getElementById('images-count').textContent = allMedia.images.length;
   document.getElementById('videos-count').textContent = allMedia.videos.length + allMedia.streams.length;
+  document.getElementById('subtitles-count').textContent = allMedia.subtitles?.length || 0;
   document.getElementById('total-count').textContent = 
-    `${allMedia.images.length + allMedia.videos.length + allMedia.streams.length} items`;
+    `${allMedia.images.length + allMedia.videos.length + allMedia.streams.length + (allMedia.subtitles?.length || 0)} items`;
   
   updateSelectedCount();
   
@@ -153,7 +164,8 @@ function renderMedia() {
     const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
     const downloadable = isDownloadable(url);
     const type = item._type || 'video';
-    const icon = type === 'stream' ? '📡' : type === 'segment' ? '🧩' : type === 'video' ? '🎬' : '🖼️';
+    const icon = type === 'stream' ? '📡' : type === 'segment' ? '🧩' : 
+                 type === 'subtitle' ? '📝' : type === 'video' ? (item.isAudio ? '🎵' : '🎬') : '🖼️';
     const size = formatSize(item.size);
     const width = item.width || item.naturalWidth || item.videoWidth;
     const height = item.height || item.naturalHeight || item.videoHeight;
@@ -166,17 +178,20 @@ function renderMedia() {
     // Badge label
     let badgeLabel = type === 'stream' ? `Stream ${streamType}` : 
                      type === 'segment' ? 'Segment' :
-                     type === 'video' ? 'Video' : 'Image';
+                     type === 'subtitle' ? `Sub ${item.langCode || ''}` :
+                     type === 'video' ? (item.isAudio ? 'Audio' : 'Video') : 'Image';
     
     // Thumbnail
     let thumbHtml;
     if (type === 'stream' || type === 'segment') {
       thumbHtml = `<div class="media-thumb-placeholder">${icon}</div>`;
+    } else if (type === 'subtitle') {
+      thumbHtml = `<div class="media-thumb-placeholder">📝</div>`;
     } else if (type === 'video') {
       if (poster && poster.startsWith('http')) {
-        thumbHtml = `<img class="media-thumb" src="${poster}" onerror="this.outerHTML='<div class=media-thumb-placeholder>🎬</div>'" loading="lazy">`;
+        thumbHtml = `<div class="media-thumb-wrapper"><img class="media-thumb" src="${poster}" onerror="this.outerHTML='<div class=media-thumb-placeholder>${item.isAudio ? '🎵' : '🎬'}</div>'" loading="lazy"><button class="preview-btn" data-url="${escapeHtml(url)}" title="Preview">▶</button></div>`;
       } else {
-        thumbHtml = `<div class="media-thumb-placeholder">🎬</div>`;
+        thumbHtml = `<div class="media-thumb-placeholder">${item.isAudio ? '🎵' : '🎬'}</div>`;
       }
     } else {
       if (url.startsWith('data:image/') || url.startsWith('http')) {
@@ -188,8 +203,9 @@ function renderMedia() {
     
     // Badge color
     let badgeClass = 'image';
-    if (type === 'video' || type === 'segment') badgeClass = 'video';
+    if (type === 'video' || type === 'segment') badgeClass = item.isAudio ? 'stream' : 'video';
     if (type === 'stream') badgeClass = 'stream';
+    if (type === 'subtitle') badgeClass = 'stream';
     
     return `
       <div class="media-card ${isSelected ? 'selected' : ''}" data-index="${i}">
@@ -238,15 +254,20 @@ function renderMedia() {
       const folder = document.getElementById('folder-input').value || 'MediaGrabber';
       const type = item._type || '';
       
-      if (type === 'stream' || item.isManifest || item.isStream || isVideoManifest(url)) {
+      if (type === 'subtitle' || item.isSubtitle) {
+        // Subtitle download
+        downloadSubtitle(item);
+      } else if (type === 'stream' || item.isManifest || item.isStream || isVideoManifest(url)) {
         // HLS/DASH stream — use HLSDownloader via content script
         const filename = getFilename(url).replace(/\.[^.]+$/, '') + '.ts';
         downloadHLSStream(url, filename);
       } else {
+        const ext = item.isAudio ? '.m4a' : '';
+        const baseName = getFilename(url).replace(/\.[^.]+$/, '') + ext;
         chrome.runtime.sendMessage({
           type: 'DOWNLOAD_ONE',
           url: url,
-          filename: getFilename(url),
+          filename: baseName || getFilename(url),
           folder: folder
         });
       }
@@ -480,6 +501,130 @@ function startDownload(items, folder) {
       progress.classList.remove('active');
     }
   });
+}
+
+// ─── Video Player Preview ─────────────────────────────────────────
+
+function openVideoPlayer(url, title) {
+  const modal = document.getElementById('player-modal');
+  const video = document.getElementById('player-video');
+  const titleEl = document.getElementById('player-title');
+  const infoEl = document.getElementById('player-info');
+  const downloadBtn = document.getElementById('player-download');
+  
+  titleEl.textContent = title || 'Preview';
+  video.src = url;
+  infoEl.textContent = url.length > 60 ? url.substring(0, 60) + '...' : url;
+  
+  // Download button
+  downloadBtn.onclick = () => {
+    const filename = getFilename(url);
+    chrome.runtime.sendMessage({
+      type: 'DOWNLOAD_ONE',
+      url: url,
+      filename: filename,
+      folder: document.getElementById('folder-input').value || 'MediaGrabber'
+    });
+  };
+  
+  modal.style.display = 'flex';
+  video.play().catch(() => {});
+}
+
+// Preview button click handler (delegated)
+document.getElementById('media-list').addEventListener('click', (e) => {
+  const previewBtn = e.target.closest('.preview-btn');
+  if (previewBtn) {
+    e.stopPropagation();
+    const url = previewBtn.dataset.url;
+    if (url) openVideoPlayer(url);
+  }
+});
+
+// Player modal close
+document.getElementById('player-close').addEventListener('click', () => {
+  const modal = document.getElementById('player-modal');
+  const video = document.getElementById('player-video');
+  video.pause();
+  video.src = '';
+  modal.style.display = 'none';
+});
+document.getElementById('player-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'player-modal') {
+    const video = document.getElementById('player-video');
+    video.pause();
+    video.src = '';
+    document.getElementById('player-modal').style.display = 'none';
+  }
+});
+
+// ─── Subtitle Download ────────────────────────────────────────────
+
+async function downloadSubtitle(item) {
+  const url = item.url;
+  const lang = item.langCode || 'en';
+  const langName = item.langName || lang;
+  const isAuto = item.isAutoGenerated || false;
+  
+  try {
+    document.getElementById('header-status').textContent = `📝 Downloading subtitle: ${langName}...`;
+    
+    const response = await fetch(url);
+    const text = await response.text();
+    
+    // Convert XML (srv3/YouTube) to SRT
+    let srtContent = text;
+    if (text.includes('<?xml') || text.includes('<transcript')) {
+      srtContent = convertYouTubeXMLToSRT(text);
+    }
+    
+    // Create blob and download
+    const blob = new Blob([srtContent], { type: 'text/plain' });
+    const blobUrl = URL.createObjectURL(blob);
+    
+    const title = item.title || 'video';
+    const safeTitle = title.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 50);
+    const filename = `${safeTitle}_${lang}${isAuto ? '_auto' : ''}.srt`;
+    
+    chrome.runtime.sendMessage({
+      type: 'DOWNLOAD_ONE',
+      url: blobUrl,
+      filename: filename,
+      folder: document.getElementById('folder-input').value || 'MediaGrabber'
+    });
+    
+    document.getElementById('header-status').textContent = `✅ Subtitle downloaded: ${langName}`;
+  } catch (e) {
+    document.getElementById('header-status').textContent = `❌ Subtitle download failed: ${e.message}`;
+  }
+}
+
+function convertYouTubeXMLToSRT(xml) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, 'text/xml');
+  const texts = doc.querySelectorAll('text');
+  let srt = '';
+  
+  texts.forEach((text, i) => {
+    const start = parseFloat(text.getAttribute('start'));
+    const duration = parseFloat(text.getAttribute('dur') || '0');
+    const end = start + duration;
+    const content = text.textContent.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+    
+    srt += `${i + 1}\n`;
+    srt += `${formatSRTTime(start)} --> ${formatSRTTime(end)}\n`;
+    srt += `${content}\n\n`;
+  });
+  
+  return srt;
+}
+
+function formatSRTTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }
 
 // ─── Platform Scan (YouTube, TikTok, Instagram, etc) ──────────────
