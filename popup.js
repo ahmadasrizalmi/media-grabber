@@ -1,7 +1,7 @@
-// Media Grabber v3.1 — Popup script
-// Fixed video detection with proper filtering
+// Media Grabber v3.2 — Popup script
+// Support for HLS/DASH segments and MediaSource buffers
 
-let allMedia = { images: [], videos: [] };
+let allMedia = { images: [], videos: [], streams: [] };
 let currentTab = 'images';
 let selectedItems = new Set();
 
@@ -31,9 +31,21 @@ function getFilename(url) {
   }
 }
 
-function isVideoUrl(url) {
+function isVideoFile(url) {
   if (!url) return false;
   return /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v|3gp)(\?|$|#)/i.test(url);
+}
+
+function isVideoSegment(url) {
+  if (!url) return false;
+  return url.includes('.ts?') || url.includes('.ts&') || 
+         url.includes('.m4s?') || url.includes('.m4s&') ||
+         url.includes('segment') || url.includes('chunk');
+}
+
+function isVideoManifest(url) {
+  if (!url) return false;
+  return /\.m3u8(\?|$|#)/i.test(url) || /\.mpd(\?|$|#)/i.test(url);
 }
 
 function isImageUrl(url) {
@@ -52,9 +64,9 @@ function isDownloadable(url) {
 function classifyAllMedia() {
   const images = [];
   const videos = [];
+  const streams = [];  // HLS/DASH streams
   const seen = new Set();
   
-  // Combine all sources
   const allSources = [
     ...(allMedia.page || []),
     ...(allMedia.network || []),
@@ -66,9 +78,8 @@ function classifyAllMedia() {
     if (!url || seen.has(url)) continue;
     seen.add(url);
     
-    // Skip data/blob URLs
-    if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('canvas:')) {
-      // Still add images to list for preview
+    // Skip non-HTTP URLs (except data: images)
+    if (url.startsWith('data:')) {
       if (url.startsWith('data:image/')) {
         item._downloadable = false;
         item._type = 'image';
@@ -77,15 +88,27 @@ function classifyAllMedia() {
       continue;
     }
     
-    // Skip non-HTTP URLs
     if (!url.startsWith('http://') && !url.startsWith('https://')) continue;
     
-    // Use isVideo flag from content script if available
-    if (item.isVideo === true || isVideoUrl(url)) {
+    // Classify based on URL patterns
+    if (item.isManifest || isVideoManifest(url)) {
+      // HLS/DASH manifest
+      item._type = 'stream';
+      item._downloadable = true;
+      item._streamType = url.includes('.m3u8') ? 'HLS' : 'DASH';
+      streams.push(item);
+    } else if (item.isSegment || isVideoSegment(url)) {
+      // Video segment
+      item._type = 'segment';
+      item._downloadable = true;
+      videos.push(item);
+    } else if (item.isVideo || isVideoFile(url)) {
+      // Direct video file
       item._type = 'video';
       item._downloadable = true;
       videos.push(item);
-    } else if (item.isVideo === false || isImageUrl(url)) {
+    } else if (isImageUrl(url)) {
+      // Image
       item._type = 'image';
       item._downloadable = true;
       images.push(item);
@@ -94,6 +117,7 @@ function classifyAllMedia() {
   
   allMedia.images = images;
   allMedia.videos = videos;
+  allMedia.streams = streams;
 }
 
 // ─── Render Media List ──────────────────────────────────────────────
@@ -106,20 +130,20 @@ function renderMedia() {
   
   // Update counts
   document.getElementById('images-count').textContent = allMedia.images.length;
-  document.getElementById('videos-count').textContent = allMedia.videos.length;
+  document.getElementById('videos-count').textContent = allMedia.videos.length + allMedia.streams.length;
   document.getElementById('total-count').textContent = 
-    `${allMedia.images.length + allMedia.videos.length} items`;
+    `${allMedia.images.length + allMedia.videos.length + allMedia.streams.length} items`;
   
-  // Update selected count
   updateSelectedCount();
   
   if (items.length === 0) {
     const icon = currentTab === 'images' ? '🖼️' : '🎬';
+    const label = currentTab === 'images' ? 'gambar' : 'video';
     list.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">${icon}</div>
         <div class="empty-title">Tidak Ada ${currentTab === 'images' ? 'Gambar' : 'Video'}</div>
-        <div class="empty-text">Tidak ditemukan ${currentTab === 'images' ? 'gambar' : 'video'} di halaman ini</div>
+        <div class="empty-text">Tidak ditemukan ${label} di halaman ini.<br>Untuk video streaming, coba putar video terlebih dahulu.</div>
       </div>
     `;
     return;
@@ -128,20 +152,27 @@ function renderMedia() {
   list.innerHTML = items.map((item, i) => {
     const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
     const downloadable = isDownloadable(url);
-    const type = currentTab === 'images' ? 'image' : 'video';
-    const icon = type === 'video' ? '🎬' : '🖼️';
+    const type = item._type || 'video';
+    const icon = type === 'stream' ? '📡' : type === 'segment' ? '🧩' : type === 'video' ? '🎬' : '🖼️';
     const size = formatSize(item.size);
     const width = item.width || item.naturalWidth || item.videoWidth;
     const height = item.height || item.naturalHeight || item.videoHeight;
     const dimensions = width && height ? `${width}×${height}` : '';
-    const shortUrl = url.length > 50 ? url.substring(0, 50) + '...' : url;
+    const shortUrl = url.length > 45 ? url.substring(0, 45) + '...' : url;
     const isSelected = selectedItems.has(i);
     const poster = item.poster || '';
+    const streamType = item._streamType || '';
     
-    // For video: use poster image or show placeholder
-    // For image: use direct URL
+    // Badge label
+    let badgeLabel = type === 'stream' ? `Stream ${streamType}` : 
+                     type === 'segment' ? 'Segment' :
+                     type === 'video' ? 'Video' : 'Image';
+    
+    // Thumbnail
     let thumbHtml;
-    if (type === 'video') {
+    if (type === 'stream' || type === 'segment') {
+      thumbHtml = `<div class="media-thumb-placeholder">${icon}</div>`;
+    } else if (type === 'video') {
       if (poster && poster.startsWith('http')) {
         thumbHtml = `<img class="media-thumb" src="${poster}" onerror="this.outerHTML='<div class=media-thumb-placeholder>🎬</div>'" loading="lazy">`;
       } else {
@@ -155,12 +186,17 @@ function renderMedia() {
       }
     }
     
+    // Badge color
+    let badgeClass = 'image';
+    if (type === 'video' || type === 'segment') badgeClass = 'video';
+    if (type === 'stream') badgeClass = 'stream';
+    
     return `
       <div class="media-card ${isSelected ? 'selected' : ''}" data-index="${i}">
         <input type="checkbox" class="media-checkbox" data-index="${i}" ${isSelected ? 'checked' : ''} ${!downloadable ? 'disabled' : ''}>
         ${thumbHtml}
         <div class="media-info">
-          <div class="media-type-badge ${type}">${type === 'video' ? 'Video' : 'Image'}</div>
+          <div class="media-type-badge ${badgeClass}">${badgeLabel}</div>
           <div class="media-url" title="${url}">${shortUrl}</div>
           <div class="media-meta">
             ${size ? `<span class="media-size">📦 ${size}</span>` : ''}
@@ -180,7 +216,7 @@ function renderMedia() {
     `;
   }).join('');
   
-  // Checkbox handlers
+  // Event handlers
   list.querySelectorAll('.media-checkbox:not([disabled])').forEach(cb => {
     cb.addEventListener('change', (e) => {
       const idx = parseInt(e.target.dataset.index);
@@ -194,7 +230,6 @@ function renderMedia() {
     });
   });
   
-  // Download button handlers
   list.querySelectorAll('.media-download-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.index);
@@ -211,7 +246,6 @@ function renderMedia() {
     });
   });
   
-  // Select all checkbox
   const selectAll = document.getElementById('select-all');
   selectAll.checked = items.length > 0 && items.every((_, i) => selectedItems.has(i));
 }
@@ -286,28 +320,10 @@ async function scanPage() {
     func: () => {
       const media = [];
       
-      // Helper: validate video URL
-      function isRealVideoUrl(url) {
-        if (!url || !url.startsWith('http')) return false;
-        const skipPatterns = [/google-analytics/i, /facebook\.net/i, /pixel/i, /beacon/i, /tracking/i];
-        for (const p of skipPatterns) { if (p.test(url)) return false; }
-        return /\.(mp4|webm|mov|avi|mkv|flv|m4v)(\?|$|#)/i.test(url);
-      }
-      
-      // Helper: validate image URL
-      function isRealImageUrl(url) {
-        if (!url) return false;
-        if (url.startsWith('data:image/')) return true;
-        if (!url.startsWith('http')) return false;
-        const skipPatterns = [/google-analytics/i, /facebook\.net/i, /pixel/i, /1x1/i];
-        for (const p of skipPatterns) { if (p.test(url)) return false; }
-        return /\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|ico)(\?|$|#)/i.test(url);
-      }
-      
       // Scan images
       document.querySelectorAll('img').forEach(img => {
         const src = img.src;
-        if (src && isRealImageUrl(src) && img.width > 50) {
+        if (src && img.width > 50 && !src.startsWith('data:')) {
           media.push({ 
             type: 'image', 
             source: 'img', 
@@ -318,10 +334,10 @@ async function scanPage() {
         }
       });
       
-      // Scan videos — ONLY actual video files
+      // Scan videos - capture ALL video elements
       document.querySelectorAll('video').forEach(vid => {
         const src = vid.src || vid.currentSrc;
-        if (src && isRealVideoUrl(src)) {
+        if (src) {
           media.push({ 
             type: 'video', 
             source: 'video', 
@@ -332,9 +348,10 @@ async function scanPage() {
             isVideo: true
           });
         }
+        
         // Check source elements
         vid.querySelectorAll('source').forEach(s => {
-          if (s.src && isRealVideoUrl(s.src)) {
+          if (s.src) {
             media.push({ 
               type: 'video', 
               source: 'video-src', 
@@ -350,8 +367,12 @@ async function scanPage() {
       
       // Scan links to video files
       document.querySelectorAll('a[href]').forEach(a => {
-        if (isRealVideoUrl(a.href)) {
+        if (/\.(mp4|webm|mov|avi|mkv|flv|m4v)(\?|$|#)/i.test(a.href)) {
           media.push({ url: a.href, source: 'link', type: 'video', isVideo: true });
+        }
+        // HLS/DASH manifests
+        if (/\.m3u8(\?|$|#)/i.test(a.href) || /\.mpd(\?|$|#)/i.test(a.href)) {
+          media.push({ url: a.href, source: 'link-manifest', type: 'stream', isManifest: true });
         }
       });
       
@@ -361,7 +382,7 @@ async function scanPage() {
           const bg = getComputedStyle(el).backgroundImage;
           if (bg && bg !== 'none' && !bg.includes('gradient')) {
             const match = bg.match(/url\("?([^"]+)"?\)/);
-            if (match && isRealImageUrl(match[1])) {
+            if (match && match[1] && !match[1].startsWith('data:') && !match[1].includes('svg')) {
               media.push({ type: 'bg-image', source: 'css-bg', url: match[1] });
             }
           }
@@ -381,8 +402,9 @@ async function scanPage() {
       allMedia.page = results[0].result;
       renderMedia();
       
+      const totalVideos = allMedia.videos.length + allMedia.streams.length;
       document.getElementById('header-status').textContent = 
-        `Ditemukan ${allMedia.images.length} gambar & ${allMedia.videos.length} video`;
+        `Ditemukan ${allMedia.images.length} gambar & ${totalVideos} video`;
     }
   });
 }

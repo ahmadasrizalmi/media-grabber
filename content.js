@@ -1,5 +1,5 @@
-// Content script — Media Grabber v3.1
-// Enhanced video detection with proper filtering
+// Content script — Media Grabber v3.2
+// Intercept MediaSource to capture streaming video data
 
 // ========== 1. OVERRIDE RIGHT-CLICK DISABLE ==========
 document.addEventListener('contextmenu', (e) => {
@@ -13,71 +13,71 @@ EventTarget.prototype.addEventListener = function(type, listener, options) {
   return origAddEventListener.call(this, type, listener, options);
 };
 
-// ========== VIDEO URL VALIDATION ==========
-function isRealVideoUrl(url) {
-  if (!url || typeof url !== 'string') return false;
+// ========== 2. INTERCEPT MEDIASOURCE API ==========
+// This captures video data from HLS/DASH streaming
+
+const mediaSourceBuffers = new Map();
+let currentVideoBlob = null;
+
+// Override MediaSource.addSourceBuffer
+const origAddSourceBuffer = MediaSource.prototype.addSourceBuffer;
+MediaSource.prototype.addSourceBuffer = function(mimeType) {
+  console.log('[Media Grabber] MediaSource.addSourceBuffer:', mimeType);
+  const sourceBuffer = origAddSourceBuffer.call(this, mimeType);
   
-  // Must be http/https
-  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  // Track this source buffer
+  const bufferId = `buffer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  mediaSourceBuffers.set(bufferId, {
+    mimeType: mimeType,
+    chunks: [],
+    sourceBuffer: sourceBuffer,
+    mediaSource: this
+  });
   
-  // Skip common tracking/analytics/player URLs
-  const skipPatterns = [
-    /google-analytics/i,
-    /facebook\.net/i,
-    /doubleclick/i,
-    /pixel/i,
-    /beacon/i,
-    /tracking/i,
-    /analytics/i,
-    /stats\./i,
-    /\.gif\?/i,  // tracking GIFs
-    /\/player\//i,  // player API endpoints
-    /\/api\//i,
-    /\/v1\//i,
-    /\/v2\//i,
-    /manifest\.m3u8$/i,  // HLS manifest (not actual video)
-    /\.m3u8\?/i,
-    /\.mpd$/i,  // DASH manifest
-    /\.mpd\?/i,
-  ];
+  // Intercept appendBuffer to capture video data
+  const origAppendBuffer = sourceBuffer.appendBuffer.bind(sourceBuffer);
+  sourceBuffer.appendBuffer = function(data) {
+    const buffer = mediaSourceBuffers.get(bufferId);
+    if (buffer) {
+      // Store the chunk
+      buffer.chunks.push(new Uint8Array(data));
+      console.log(`[Media Grabber] Captured chunk: ${data.byteLength} bytes, total chunks: ${buffer.chunks.length}`);
+    }
+    return origAppendBuffer(data);
+  };
   
-  for (const pattern of skipPatterns) {
-    if (pattern.test(url)) return false;
-  }
-  
-  // Must have video extension or be from known video CDN
-  const videoExtensions = /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v|3gp)(\?|$|#)/i;
-  const videoPaths = /\/(video|videos|media|uploads|files|download)\/.*\.(mp4|webm|mov)/i;
-  const videoCdn = /(cdn|static|media|assets|uploads)\..*\.(mp4|webm)/i;
-  
-  return videoExtensions.test(url) || videoPaths.test(url) || videoCdn.test(url);
+  return sourceBuffer;
+};
+
+// Override MediaSource.addSourceBuffer (alternative)
+const origAddSourceBuffer2 = window.MediaSource?.prototype?.addSourceBuffer;
+if (origAddSourceBuffer2) {
+  window.MediaSource.prototype.addSourceBuffer = function(mimeType) {
+    console.log('[Media Grabber] MediaSource.addSourceBuffer (v2):', mimeType);
+    const sourceBuffer = origAddSourceBuffer2.call(this, mimeType);
+    
+    const bufferId = `buffer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    mediaSourceBuffers.set(bufferId, {
+      mimeType: mimeType,
+      chunks: [],
+      sourceBuffer: sourceBuffer,
+      mediaSource: this
+    });
+    
+    const origAppendBuffer = sourceBuffer.appendBuffer.bind(sourceBuffer);
+    sourceBuffer.appendBuffer = function(data) {
+      const buffer = mediaSourceBuffers.get(bufferId);
+      if (buffer) {
+        buffer.chunks.push(new Uint8Array(data));
+      }
+      return origAppendBuffer(data);
+    };
+    
+    return sourceBuffer;
+  };
 }
 
-function isRealImageUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('data:')) return false;
-  
-  // Skip tracking pixels
-  const skipPatterns = [
-    /google-analytics/i,
-    /facebook\.net/i,
-    /doubleclick/i,
-    /pixel/i,
-    /beacon/i,
-    /1x1/i,
-    /spacer/i,
-    /transparent/i,
-  ];
-  
-  for (const pattern of skipPatterns) {
-    if (pattern.test(url)) return false;
-  }
-  
-  const imageExtensions = /\.(webp|jpg|jpeg|png|gif|avif|bmp|tiff|svg|ico)(\?|$|#)/i;
-  return imageExtensions.test(url) || url.startsWith('data:image/');
-}
-
-// ========== 2. INTERCEPT FETCH ==========
+// ========== 3. INTERCEPT FETCH/XHR FOR VIDEO CHUNKS ==========
 const origFetch = window.fetch;
 window.fetch = async function(...args) {
   const url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
@@ -86,20 +86,51 @@ window.fetch = async function(...args) {
   if (url) {
     const contentType = response.headers?.get('content-type') || '';
     
-    // Only capture actual video files
-    if (contentType.includes('video/mp4') || contentType.includes('video/webm') || 
-        contentType.includes('video/quicktime')) {
+    // Detect video segments (HLS .ts, DASH .m4s, fMP4)
+    const isVideoSegment = (
+      contentType.includes('video/mp4') ||
+      contentType.includes('video/webm') ||
+      contentType.includes('video/MP2T') ||  // HLS TS segments
+      contentType.includes('application/mp4') ||  // fMP4
+      url.includes('.ts?') || url.includes('.ts&') ||  // HLS segments
+      url.includes('.m4s?') || url.includes('.m4s&') ||  // DASH segments
+      url.includes('segment') || url.includes('chunk')
+    );
+    
+    if (isVideoSegment) {
+      const clone = response.clone();
+      clone.arrayBuffer().then(buffer => {
+        if (buffer.byteLength > 10240) { // Min 10KB
+          console.log(`[Media Grabber] Video segment detected: ${url} (${buffer.byteLength} bytes)`);
+          
+          // Store for download
+          chrome.runtime.sendMessage({
+            type: 'ADD_MEDIA',
+            data: {
+              source: 'fetch-segment',
+              url: url,
+              contentType: contentType,
+              size: buffer.byteLength,
+              isVideo: true,
+              isSegment: true,
+              timestamp: Date.now()
+            }
+          });
+        }
+      }).catch(() => {});
+    }
+    
+    // Capture actual video files
+    if (contentType.includes('video/mp4') || contentType.includes('video/webm')) {
       const clone = response.clone();
       clone.blob().then(blob => {
-        if (blob.size > 10240) { // Min 10KB for video
-          const blobUrl = URL.createObjectURL(blob);
+        if (blob.size > 10240) {
           chrome.runtime.sendMessage({
             type: 'ADD_MEDIA',
             data: {
               source: 'fetch-video',
               url: url,
-              blobUrl: blobUrl,
-              contentType: contentType || blob.type,
+              contentType: contentType,
               size: blob.size,
               isVideo: true,
               timestamp: Date.now()
@@ -109,17 +140,17 @@ window.fetch = async function(...args) {
       }).catch(() => {});
     }
     
-    // Capture actual images
+    // Capture images
     if (contentType.includes('image/') && !contentType.includes('svg')) {
       const clone = response.clone();
       clone.blob().then(blob => {
-        if (blob.size > 1024) { // Skip tiny tracking pixels
+        if (blob.size > 1024) {
           chrome.runtime.sendMessage({
             type: 'ADD_MEDIA',
             data: {
               source: 'fetch-image',
               url: url,
-              contentType: contentType || blob.type,
+              contentType: contentType,
               size: blob.size,
               isVideo: false,
               timestamp: Date.now()
@@ -129,7 +160,7 @@ window.fetch = async function(...args) {
       }).catch(() => {});
     }
     
-    // Scan JSON responses for media URLs
+    // Scan JSON for video URLs
     if (contentType.includes('json')) {
       const clone = response.clone();
       clone.json().then(data => findMediaUrlsInJson(data, url)).catch(() => {});
@@ -139,7 +170,7 @@ window.fetch = async function(...args) {
   return response;
 };
 
-// ========== 3. INTERCEPT XMLHttpRequest ==========
+// ========== 4. INTERCEPT XMLHttpRequest ==========
 const origXHROpen = XMLHttpRequest.prototype.open;
 const origXHRSend = XMLHttpRequest.prototype.send;
 
@@ -155,15 +186,27 @@ XMLHttpRequest.prototype.send = function(...args) {
     
     const contentType = this.getResponseHeader('content-type') || '';
     
-    // Only capture actual video responses
-    if (contentType.includes('video/mp4') || contentType.includes('video/webm')) {
+    // Detect video segments
+    const isVideoSegment = (
+      contentType.includes('video/mp4') ||
+      contentType.includes('video/webm') ||
+      contentType.includes('video/MP2T') ||
+      contentType.includes('application/mp4') ||
+      url.includes('.ts?') || url.includes('.ts&') ||
+      url.includes('.m4s?') || url.includes('.m4s&') ||
+      url.includes('segment') || url.includes('chunk')
+    );
+    
+    if (isVideoSegment) {
+      console.log(`[Media Grabber] XHR video segment: ${url}`);
       chrome.runtime.sendMessage({
         type: 'ADD_MEDIA',
         data: {
-          source: 'xhr-video',
+          source: 'xhr-segment',
           url: url,
           contentType: contentType,
           isVideo: true,
+          isSegment: true,
           timestamp: Date.now()
         }
       });
@@ -193,29 +236,53 @@ XMLHttpRequest.prototype.send = function(...args) {
   return origXHRSend.apply(this, args);
 };
 
-// ========== 4. SCAN JSON FOR MEDIA URLS ==========
+// ========== 5. SCAN JSON FOR MEDIA URLS ==========
 function findMediaUrlsInJson(data, sourceUrl, depth = 0) {
   if (depth > 5 || !data) return;
   
+  // Known video API patterns
+  const videoApiPatterns = [
+    /youtube\.com\/api/i,
+    /vimeo\.com/i,
+    /dailymotion\.com/i,
+    /facebook\.com.*video/i,
+    /tiktok\.com/i,
+    /instagram\.com.*video/i,
+  ];
+  
   if (typeof data === 'string') {
-    if (isRealVideoUrl(data)) {
+    // Check for video URLs
+    if (/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(data)) {
       chrome.runtime.sendMessage({
         type: 'ADD_MEDIA',
         data: {
           source: 'json-video',
           url: data.startsWith('http') ? data : new URL(data, sourceUrl).href,
-          originalApiUrl: sourceUrl,
           isVideo: true,
           timestamp: Date.now()
         }
       });
-    } else if (isRealImageUrl(data)) {
+    }
+    // Check for HLS/DASH manifests
+    else if (/\.m3u8(\?|$)/i.test(data) || /\.mpd(\?|$)/i.test(data)) {
+      chrome.runtime.sendMessage({
+        type: 'ADD_MEDIA',
+        data: {
+          source: 'json-manifest',
+          url: data.startsWith('http') ? data : new URL(data, sourceUrl).href,
+          isVideo: true,
+          isManifest: true,
+          timestamp: Date.now()
+        }
+      });
+    }
+    // Check for image URLs
+    else if (/\.(webp|jpg|jpeg|png|gif|avif)(\?|$|#)/i.test(data)) {
       chrome.runtime.sendMessage({
         type: 'ADD_MEDIA',
         data: {
           source: 'json-image',
           url: data.startsWith('http') ? data : new URL(data, sourceUrl).href,
-          originalApiUrl: sourceUrl,
           isVideo: false,
           timestamp: Date.now()
         }
@@ -225,16 +292,26 @@ function findMediaUrlsInJson(data, sourceUrl, depth = 0) {
     data.forEach(item => findMediaUrlsInJson(item, sourceUrl, depth + 1));
   } else if (typeof data === 'object') {
     Object.entries(data).forEach(([key, value]) => {
-      if (['url', 'src', 'video', 'video_url', 'video_src', 'mp4', 'webm',
-           'image', 'thumbnail', 'poster', 'preview', 'file', 'media'].includes(key.toLowerCase())) {
+      // Look for video-specific keys
+      const videoKeys = ['url', 'src', 'video', 'video_url', 'video_src', 'mp4', 'webm',
+                         'download_url', 'stream_url', 'playback_url', 'media_url',
+                         'hls_url', 'dash_url', 'manifest_url', 'm3u8_url', 'mpd_url',
+                         'quality', 'bitrate', 'resolution'];
+      
+      if (videoKeys.includes(key.toLowerCase())) {
         findMediaUrlsInJson(value, sourceUrl, depth + 1);
       }
-      findMediaUrlsInJson(value, sourceUrl, depth + 1);
+      
+      // Also check for nested video objects
+      if (key.toLowerCase().includes('video') || key.toLowerCase().includes('stream') ||
+          key.toLowerCase().includes('media') || key.toLowerCase().includes('playback')) {
+        findMediaUrlsInJson(value, sourceUrl, depth + 1);
+      }
     });
   }
 }
 
-// ========== 5. MONITOR DOM ==========
+// ========== 6. MONITOR DOM FOR VIDEO ELEMENTS ==========
 const observer = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     for (const node of mutation.addedNodes) {
@@ -243,7 +320,8 @@ const observer = new MutationObserver((mutations) => {
       // Video elements
       if (node.tagName === 'VIDEO') {
         const src = node.src || node.currentSrc;
-        if (src && isRealVideoUrl(src)) {
+        if (src) {
+          console.log('[Media Grabber] Video element detected:', src);
           chrome.runtime.sendMessage({
             type: 'ADD_MEDIA',
             data: {
@@ -257,12 +335,22 @@ const observer = new MutationObserver((mutations) => {
             }
           });
         }
+        
+        // Monitor when video starts playing
+        node.addEventListener('play', () => {
+          console.log('[Media Grabber] Video started playing');
+          // Try to get the actual video source
+          const currentSrc = node.currentSrc || node.src;
+          if (currentSrc && currentSrc.startsWith('blob:')) {
+            console.log('[Media Grabber] Video using blob URL:', currentSrc);
+          }
+        });
       }
       
       // Image elements
       if (node.tagName === 'IMG') {
         const src = node.src;
-        if (src && isRealImageUrl(src) && node.width > 50) {
+        if (src && node.width > 50) {
           chrome.runtime.sendMessage({
             type: 'ADD_MEDIA',
             data: {
@@ -289,4 +377,45 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-console.log('[Media Grabber] Content script v3.1 loaded');
+// ========== 7. CAPTURE VIDEO FROM CANVAS ==========
+// Some players render video to canvas
+const origDrawImage = CanvasRenderingContext2D.prototype.drawImage;
+CanvasRenderingContext2D.prototype.drawImage = function(image, ...args) {
+  if (image instanceof HTMLVideoElement) {
+    // This is a video being drawn to canvas
+    console.log('[Media Grabber] Video drawn to canvas');
+    this._hasVideo = true;
+  }
+  return origDrawImage.call(this, image, ...args);
+};
+
+// ========== 8. GET MEDIA SOURCE DATA ==========
+// Function to export captured MediaSource buffers
+window.__mediaGrabber_exportBuffers = function() {
+  const exported = [];
+  
+  for (const [id, buffer] of mediaSourceBuffers) {
+    if (buffer.chunks.length > 0) {
+      // Combine all chunks
+      const totalSize = buffer.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const combined = new Uint8Array(totalSize);
+      let offset = 0;
+      
+      for (const chunk of buffer.chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+      
+      exported.push({
+        id: id,
+        mimeType: buffer.mimeType,
+        size: totalSize,
+        blob: new Blob([combined], { type: buffer.mimeType })
+      });
+    }
+  }
+  
+  return exported;
+};
+
+console.log('[Media Grabber] Content script v3.2 loaded - MediaSource interception active');
