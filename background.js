@@ -1,5 +1,5 @@
-// Background service worker — Media Grabber v3.3
-// HLS stream download support + M3U8 manifest capture
+// Background service worker — Media Grabber v4.0
+// Platform extractors (YouTube, TikTok, Instagram, Twitter, etc) + HLS support
 
 const mediaRequests = new Map();
 const interceptedData = [];
@@ -319,4 +319,4 @@ function sanitizeFilename(name) {
     .substring(0, 100);
 }
 
-console.log('[Media Grabber] Background service worker v3.3 loaded');
+console.log('[Media Grabber] Background service worker v4.0 loaded');

@@ -434,7 +434,26 @@ window.__mediaGrabber_exportBuffers = function() {
   return exported;
 };
 
-// ========== 9. HLS STREAM DOWNLOADER BRIDGE ==========
+// ========== 9. PLATFORM VIDEO EXTRACTOR ==========
+// Handle platform extraction requests from popup
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'EXTRACT_PLATFORM') {
+    try {
+      if (window.__mediaGrabber_extractors) {
+        const result = window.__mediaGrabber_extractors.extract();
+        console.log(`[Media Grabber] Platform scan: ${result.platform} — ${result.results.length} items found`);
+        sendResponse({ success: true, ...result });
+      } else {
+        sendResponse({ success: false, error: 'Extractors not loaded' });
+      }
+    } catch (e) {
+      sendResponse({ success: false, error: e.message });
+    }
+    return true;
+  }
+});
+
+// ========== 10. HLS STREAM DOWNLOADER BRIDGE ==========
 // Handle HLS download requests from popup
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'DOWNLOAD_HLS') {
@@ -489,4 +508,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-console.log('[Media Grabber] Content script v3.3 loaded - MediaSource + HLS streaming active');
+console.log('[Media Grabber] Content script v4.0 loaded - Platform extractors + MediaSource + HLS');

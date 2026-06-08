@@ -482,6 +482,175 @@ function startDownload(items, folder) {
   });
 }
 
+// ─── Platform Scan (YouTube, TikTok, Instagram, etc) ──────────────
+
+let platformResults = [];
+
+async function scanPlatform() {
+  const tab = await getCurrentTab();
+  const statusEl = document.getElementById('header-status');
+  const btn = document.getElementById('platform-scan-btn');
+  
+  statusEl.textContent = '🔍 Scanning platform...';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  
+  chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_PLATFORM' }, (response) => {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    
+    if (chrome.runtime.lastError) {
+      statusEl.textContent = '❌ Refresh halaman dulu, lalu coba lagi';
+      return;
+    }
+    
+    if (!response?.success) {
+      statusEl.textContent = `❌ ${response?.error || 'Extraction failed'}`;
+      return;
+    }
+    
+    const { platform, results } = response;
+    platformResults = results;
+    
+    if (results.length === 0) {
+      statusEl.textContent = `ℹ️ ${platform}: Tidak ditemukan video`;
+      return;
+    }
+    
+    // Separate by type
+    const videos = results.filter(r => r.isVideo || r.type === 'video');
+    const audio = results.filter(r => r.isAudio || r.type === 'audio');
+    const streams = results.filter(r => r.isStream || r.type === 'stream');
+    
+    statusEl.textContent = `✅ ${platform}: ${videos.length} video, ${audio.length} audio`;
+    
+    // Add platform results to the media list
+    const platformItems = results.map(r => ({
+      url: r.url,
+      source: r.source,
+      isVideo: r.isVideo !== false,
+      isManifest: r.isManifest || false,
+      isStream: r.isStream || false,
+      width: r.width || 0,
+      height: r.height || 0,
+      size: r.size || 0,
+      poster: r.thumbnail || '',
+      _platform: platform,
+      _quality: r.quality || '',
+      _format: r.format || '',
+      _hasAudio: r.hasAudio,
+      _hasVideo: r.hasVideo,
+      _bitrate: r.bitrate || 0
+    }));
+    
+    // Merge with existing intercepted data
+    if (!allMedia.intercepted) allMedia.intercepted = [];
+    for (const item of platformItems) {
+      if (!allMedia.intercepted.find(x => x.url === item.url)) {
+        allMedia.intercepted.push(item);
+      }
+    }
+    
+    renderMedia();
+    
+    // If there are multiple qualities, show quality picker
+    if (videos.length > 1) {
+      showQualityPicker(platform, videos);
+    }
+  });
+}
+
+function showQualityPicker(platform, videos) {
+  const modal = document.getElementById('quality-modal');
+  const title = document.getElementById('modal-title');
+  const body = document.getElementById('modal-body');
+  
+  title.textContent = `${getPlatformIcon(platform)} Pilih Kualitas Video`;
+  
+  // Sort by quality (height) descending
+  const sorted = [...videos].sort((a, b) => (b.height || 0) - (a.height || 0));
+  
+  body.innerHTML = `
+    <div class="platform-badge">${getPlatformIcon(platform)} ${platform}</div>
+    ${sorted.map((v, i) => `
+      <div class="quality-item" data-index="${i}" data-url="${escapeHtml(v.url)}">
+        <div class="quality-icon ${v.isAudio ? 'audio-icon' : 'video-icon'}">
+          ${v.isAudio ? '🎵' : '🎬'}
+        </div>
+        <div class="quality-info">
+          <div class="quality-label">${v.quality || 'Unknown'} ${v.format ? `(${v.format})` : ''}</div>
+          <div class="quality-detail">
+            ${v.width && v.height ? `${v.width}×${v.height}` : ''}
+            ${v.size ? ` • ${formatSize(v.size)}` : ''}
+            ${v.bitrate ? ` • ${v.bitrate}kbps` : ''}
+            ${v.hasAudio === false ? ' • Video only' : ''}
+            ${v.hasAudio === true && !v.isVideo ? ' • Audio only' : ''}
+          </div>
+        </div>
+        <div class="quality-badge">${v.quality || '?'}</div>
+      </div>
+    `).join('')}
+  `;
+  
+  // Click handlers
+  body.querySelectorAll('.quality-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const url = item.dataset.url;
+      const idx = parseInt(item.dataset.index);
+      const video = sorted[idx];
+      
+      // Highlight selected
+      body.querySelectorAll('.quality-item').forEach(el => el.classList.remove('selected'));
+      item.classList.add('selected');
+      
+      // Download
+      const filename = `${platform}_video_${video.quality || 'download'}.${video.format || 'mp4'}`;
+      
+      if (video.isStream || video.isManifest) {
+        downloadHLSStream(url, filename);
+      } else {
+        chrome.runtime.sendMessage({
+          type: 'DOWNLOAD_ONE',
+          url: url,
+          filename: filename,
+          folder: document.getElementById('folder-input').value || 'MediaGrabber'
+        });
+      }
+      
+      // Close modal after short delay
+      setTimeout(() => { modal.style.display = 'none'; }, 500);
+    });
+  });
+  
+  modal.style.display = 'flex';
+}
+
+function getPlatformIcon(platform) {
+  const icons = {
+    youtube: '🔴', tiktok: '🎵', instagram: '📸',
+    twitter: '🐦', facebook: '📘', vimeo: '🎬',
+    dailymotion: '📺', reddit: '🟠'
+  };
+  return icons[platform] || '🌐';
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Platform scan button
+document.getElementById('platform-scan-btn').addEventListener('click', scanPlatform);
+
+// Modal close
+document.getElementById('modal-close').addEventListener('click', () => {
+  document.getElementById('quality-modal').style.display = 'none';
+});
+document.getElementById('quality-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'quality-modal') {
+    document.getElementById('quality-modal').style.display = 'none';
+  }
+});
+
 // ─── Refresh Button ─────────────────────────────────────────────────
 
 document.getElementById('refresh-btn').addEventListener('click', scanPage);
