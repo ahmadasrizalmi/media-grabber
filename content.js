@@ -86,6 +86,22 @@ window.fetch = async function(...args) {
   if (url) {
     const contentType = response.headers?.get('content-type') || '';
     
+    // Detect M3U8 manifests (HLS streams)
+    if (/\.m3u8(\?|$|#)/i.test(url)) {
+      console.log('[Media Grabber] M3U8 manifest detected:', url);
+      chrome.runtime.sendMessage({
+        type: 'ADD_MEDIA',
+        data: {
+          source: 'fetch-m3u8',
+          url: url,
+          isVideo: true,
+          isManifest: true,
+          isStream: true,
+          timestamp: Date.now()
+        }
+      }).catch(() => {});
+    }
+    
     // Detect video segments (HLS .ts, DASH .m4s, fMP4)
     const isVideoSegment = (
       contentType.includes('video/mp4') ||
@@ -418,4 +434,59 @@ window.__mediaGrabber_exportBuffers = function() {
   return exported;
 };
 
-console.log('[Media Grabber] Content script v3.2 loaded - MediaSource interception active');
+// ========== 9. HLS STREAM DOWNLOADER BRIDGE ==========
+// Handle HLS download requests from popup
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'DOWNLOAD_HLS') {
+    const hlsUrl = msg.url;
+    const filename = msg.filename || `video_${Date.now()}.ts`;
+    
+    console.log(`[Media Grabber] Starting HLS download: ${hlsUrl}`);
+    
+    const downloader = new HLSDownloader({
+      concurrency: 5,
+      onProgress: (progress) => {
+        chrome.runtime.sendMessage({
+          type: 'HLS_PROGRESS',
+          ...progress
+        }).catch(() => {});
+      },
+      onComplete: (info) => {
+        console.log('[Media Grabber] HLS download complete:', info);
+      },
+      onError: (error) => {
+        console.error('[Media Grabber] HLS download error:', error);
+        chrome.runtime.sendMessage({
+          type: 'HLS_ERROR',
+          error: error.message
+        }).catch(() => {});
+      }
+    });
+    
+    // Store downloader reference for cancellation
+    window.__mediaGrabber_activeHLS = downloader;
+    
+    downloader.downloadHLS(hlsUrl, filename)
+      .then(result => {
+        sendResponse({ success: true, size: result.size });
+      })
+      .catch(error => {
+        sendResponse({ success: false, error: error.message });
+      });
+    
+    return true; // Keep message channel open for async response
+  }
+  
+  if (msg.type === 'CANCEL_HLS') {
+    if (window.__mediaGrabber_activeHLS) {
+      window.__mediaGrabber_activeHLS.cancel();
+      window.__mediaGrabber_activeHLS = null;
+      sendResponse({ ok: true });
+    } else {
+      sendResponse({ ok: false, error: 'No active download' });
+    }
+    return true;
+  }
+});
+
+console.log('[Media Grabber] Content script v3.3 loaded - MediaSource + HLS streaming active');

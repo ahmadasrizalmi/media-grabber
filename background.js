@@ -1,5 +1,5 @@
-// Background service worker — Media Grabber v3.1
-// Fixed video detection with proper filtering
+// Background service worker — Media Grabber v3.3
+// HLS stream download support + M3U8 manifest capture
 
 const mediaRequests = new Map();
 const interceptedData = [];
@@ -319,4 +319,4 @@ function sanitizeFilename(name) {
     .substring(0, 100);
 }
 
-console.log('[Media Grabber] Background service worker v3.1 loaded');
+console.log('[Media Grabber] Background service worker v3.3 loaded');

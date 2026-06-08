@@ -236,13 +236,20 @@ function renderMedia() {
       const item = allMedia[currentTab][idx];
       const url = item.url || item.src || item.blobUrl || item.originalUrl || '';
       const folder = document.getElementById('folder-input').value || 'MediaGrabber';
+      const type = item._type || '';
       
-      chrome.runtime.sendMessage({
-        type: 'DOWNLOAD_ONE',
-        url: url,
-        filename: getFilename(url),
-        folder: folder
-      });
+      if (type === 'stream' || item.isManifest || item.isStream || isVideoManifest(url)) {
+        // HLS/DASH stream — use HLSDownloader via content script
+        const filename = getFilename(url).replace(/\.[^.]+$/, '') + '.ts';
+        downloadHLSStream(url, filename);
+      } else {
+        chrome.runtime.sendMessage({
+          type: 'DOWNLOAD_ONE',
+          url: url,
+          filename: getFilename(url),
+          folder: folder
+        });
+      }
     });
   });
   
@@ -497,6 +504,75 @@ chrome.runtime.onMessage.addListener((msg) => {
     document.getElementById('progress-fill').style.width = '100%';
     document.getElementById('header-status').textContent = 
       `✅ ${msg.completed} file tersimpan ke ${document.getElementById('folder-input').value || 'MediaGrabber'}/`;
+  }
+});
+
+// ─── HLS Stream Download ──────────────────────────────────────────
+
+async function downloadHLSStream(url, filename) {
+  const tab = await getCurrentTab();
+  const progress = document.getElementById('progress');
+  progress.classList.add('active');
+  document.getElementById('progress-text').textContent = 'Parsing M3U8...';
+  document.getElementById('progress-count').textContent = '';
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('header-status').textContent = '📡 Downloading HLS stream...';
+  
+  // Send download request to content script
+  chrome.tabs.sendMessage(tab.id, {
+    type: 'DOWNLOAD_HLS',
+    url: url,
+    filename: filename
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      document.getElementById('header-status').textContent = 
+        '❌ Content script not loaded. Refresh the page and try again.';
+      progress.classList.remove('active');
+      return;
+    }
+    
+    if (response?.success) {
+      document.getElementById('progress-text').textContent = 'Selesai!';
+      document.getElementById('progress-fill').style.width = '100%';
+      document.getElementById('header-status').textContent = 
+        `✅ Stream downloaded (${formatSize(response.size)})`;
+    } else {
+      document.getElementById('header-status').textContent = 
+        `❌ Error: ${response?.error || 'Unknown error'}`;
+    }
+    setTimeout(() => progress.classList.remove('active'), 3000);
+  });
+}
+
+// Listen for HLS progress updates from content script
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'HLS_PROGRESS') {
+    const progress = document.getElementById('progress');
+    progress.classList.add('active');
+    
+    if (msg.stage === 'parsing') {
+      document.getElementById('progress-text').textContent = '📋 Parsing M3U8...';
+      document.getElementById('progress-fill').style.width = '10%';
+    } else if (msg.stage === 'downloading') {
+      const pct = msg.percent || Math.round((msg.completed / msg.total) * 100);
+      document.getElementById('progress-text').textContent = 
+        `⬇️ Downloading segments... ${msg.completed || 0}/${msg.total || '?'}`;
+      document.getElementById('progress-count').textContent = `${pct}%`;
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('header-status').textContent = 
+        `📡 HLS: ${pct}% (${msg.completed || 0}/${msg.total || '?'} segments)`;
+    } else if (msg.stage === 'merging') {
+      document.getElementById('progress-text').textContent = '🔗 Merging segments...';
+      document.getElementById('progress-fill').style.width = '90%';
+    } else if (msg.stage === 'saving') {
+      document.getElementById('progress-text').textContent = '💾 Saving file...';
+      document.getElementById('progress-fill').style.width = '95%';
+    }
+  }
+  
+  if (msg.type === 'HLS_ERROR') {
+    document.getElementById('header-status').textContent = `❌ HLS Error: ${msg.error}`;
+    document.getElementById('progress').classList.remove('active');
   }
 });
 
